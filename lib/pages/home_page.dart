@@ -1,11 +1,12 @@
+import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:intl/intl.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'recording_page.dart';
+import '../services/database_helper.dart';
 
 void _requestPermissions() async {
-  // ขออนุญาตใช้ไมโครโฟน
   var microphoneStatus = await Permission.microphone.status;
   if (!microphoneStatus.isGranted) {
     await Permission.microphone.request();
@@ -37,10 +38,8 @@ class _HomePageState extends State<HomePage> {
     final lastLoginDate = prefs.getString('lastLoginDate');
     final today = DateFormat('yyyy-MM-dd').format(DateTime.now());
 
-    // ถ้าเคยเข้าแอปวันนี้แล้ว ให้ไปหน้า RecordingPage ทันที
+    // ถ้าเคยเข้าแอปวันนี้แล้ว ให้ไปหน้า RecordingPage 
     if (lastLoginDate == today) {
-      // ใช้ pushReplacement เพื่อไม่ให้ย้อนกลับมาหน้านี้ได้
-      // ต้องใช้ addPostFrameCallback เพื่อให้แน่ใจว่า context พร้อมใช้งานแล้ว
       WidgetsBinding.instance.addPostFrameCallback((_) {
         Navigator.of(context).pushReplacement(
           MaterialPageRoute(builder: (context) => RecordingPage()),
@@ -49,13 +48,13 @@ class _HomePageState extends State<HomePage> {
     }
   }
 
-  // ฟังก์ชันนี้จะถูกเรียกเมื่อกดปุ่ม และจะบันทึกวันที่ลงใน SharedPreferences
+  //ถูกเรียกเมื่อกดปุ่มและจะบันทึกวันที่ลงใน SharedPreferences
   void _onPressButton() async {
     final prefs = await SharedPreferences.getInstance();
     final today = DateFormat('yyyy-MM-dd').format(DateTime.now());
     await prefs.setString('lastLoginDate', today);
 
-    // ไปยังหน้าบันทึกเสียง
+    //หน้าบันทึกเสียง
     Navigator.of(
       context,
     ).push(MaterialPageRoute(builder: (context) => RecordingPage()));
@@ -73,7 +72,7 @@ class _HomePageState extends State<HomePage> {
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               Text(
-                'วันนี้มีอะไรที่คุณอยากเล่าให้ฉันฟังบ้างไหมคะ', // แก้ไขข้อความ
+                'วันนี้มีอะไรที่คุณอยากเล่าให้ฉันฟังบ้างไหมคะ', 
                 textAlign: TextAlign.center,
                 style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
               ),
@@ -83,21 +82,21 @@ class _HomePageState extends State<HomePage> {
                   padding: EdgeInsets.symmetric(vertical: 16),
                   textStyle: TextStyle(fontSize: 18),
                 ),
-                onPressed: _onPressButton, // เรียกใช้ฟังก์ชันที่สร้างขึ้นใหม่
+                onPressed: _onPressButton, 
                 child: Text('อยากเล่าให้ฟัง'),
               ),
               SizedBox(height: 20),
-              ElevatedButton(
-                onPressed: () {
-                  // TODO: ไปหน้าประวัติ
-                },
-                child: Text('ดูประวัติที่เคยเล่า'),
-                style: ElevatedButton.styleFrom(
-                  padding: EdgeInsets.symmetric(vertical: 16),
-                  textStyle: TextStyle(fontSize: 18),
-                  backgroundColor: Colors.grey,
-                ),
-              ),
+              //ElevatedButton(
+                // onPressed: () {
+                //   // TODO: ไปหน้าประวัติ
+                // },
+                // child: Text('ดูประวัติที่เคยเล่า'),
+                // style: ElevatedButton.styleFrom(
+                //   padding: EdgeInsets.symmetric(vertical: 16),
+                //   textStyle: TextStyle(fontSize: 18),
+                //   backgroundColor: Colors.grey,
+                // ),
+              //),
             ],
           ),
         ),

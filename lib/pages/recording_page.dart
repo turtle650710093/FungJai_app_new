@@ -3,8 +3,9 @@ import 'package:flutter/material.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:flutter_sound/flutter_sound.dart';
+import 'package:fungjai_app_new/pages/analysis_page.dart'; // เพิ่ม import หน้า Analysis
 import 'package:fungjai_app_new/pages/result_page.dart';
-import 'package:fungjai_app_new/services/emotion_classifier_service.dart';
+import 'package:fungjai_app_new/globals.dart'; // import classifier จาก globals
 
 class RecordingPage extends StatefulWidget {
   const RecordingPage({super.key});
@@ -15,10 +16,8 @@ class RecordingPage extends StatefulWidget {
 
 class _RecordingPageState extends State<RecordingPage> {
   final FlutterSoundRecorder _audioRecorder = FlutterSoundRecorder();
-  bool _isRecorderInitialized = false;
+  bool _isRecorderReady = false;
   bool _isRecording = false;
-
-  final EmotionClassifierService _classifier = EmotionClassifierService();
   String? _audioPath;
 
   @override
@@ -27,50 +26,70 @@ class _RecordingPageState extends State<RecordingPage> {
     _initializeRecorder();
   }
 
-  @override
-  void dispose() {
-    _audioRecorder.closeRecorder();
-    super.dispose();
-  }
-
   Future<void> _initializeRecorder() async {
     final status = await Permission.microphone.request();
     if (status != PermissionStatus.granted) {
-      throw Exception('Microphone permission not granted');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('กรุณาอนุญาตการเข้าถึงไมโครโฟนในตั้งค่า')),
+        );
+      }
+      return;
     }
+
     await _audioRecorder.openRecorder();
-    setState(() {
-      _isRecorderInitialized = true;
-    });
+    
+    if (mounted) {
+      setState(() {
+        _isRecorderReady = true;
+      });
+    }
+  }
+
+  @override
+  void dispose() {
+    // แก้ไขให้ปลอดภัยขึ้น ตรวจสอบว่า recorder เปิดอยู่ก่อนปิด
+    if (_audioRecorder.isRecording || _audioRecorder.isStopped) {
+        _audioRecorder.closeRecorder();
+    }
+    super.dispose();
   }
 
   Future<void> _toggleRecording() async {
-    if (!_isRecorderInitialized) return;
+    if (!_isRecorderReady) return;
 
     if (_isRecording) {
+      // ถ้ากำลังบันทึกอยู่ ให้หยุด
       await _stopRecording();
+      // เมื่อหยุดแล้ว ให้เรียกการวิเคราะห์
       if (_audioPath != null) {
-        _analyzeAndNavigate();
+        // [จุดสำคัญ] เรียกใช้ฟังก์ชันวิเคราะห์หลังจากหยุดบันทึก
+        await _analyzeAndNavigate(); 
       }
     } else {
+      // ถ้ายังไม่เริ่ม ให้เริ่มบันทึก
       await _startRecording();
+    }
+
+    // อัปเดตสถานะ UI หลังจากเริ่ม/หยุดเสร็จสิ้น
+    if(mounted){
+      setState(() {
+        _isRecording = !_isRecording;
+      });
     }
   }
 
   Future<void> _startRecording() async {
     try {
       final Directory tempDir = await getTemporaryDirectory();
+      // แก้ไขนามสกุลไฟล์ให้ตรงกับ Codec
       final String filePath = '${tempDir.path}/fungjai_rec_${DateTime.now().millisecondsSinceEpoch}.wav';
 
       await _audioRecorder.startRecorder(
         toFile: filePath,
-        codec: Codec.pcm16WAV,
+        codec: Codec.pcm16WAV, // ใช้ WAV เพื่อความเข้ากันได้
       );
-
-      setState(() {
-        _isRecording = true;
-        _audioPath = filePath;
-      });
+      _audioPath = filePath;
     } catch (e) {
       print('Error starting recording: $e');
     }
@@ -78,70 +97,67 @@ class _RecordingPageState extends State<RecordingPage> {
 
   Future<void> _stopRecording() async {
     try {
-      await _audioRecorder.stopRecorder();
-      setState(() {
-        _isRecording = false;
-      });
+      final path = await _audioRecorder.stopRecorder();
+      print('Recording stopped, file saved at: $path');
+      _audioPath = path; // อัปเดต path อีกครั้งเพื่อให้แน่ใจว่าได้ค่าล่าสุด
     } catch (e) {
       print('Error stopping recording: $e');
     }
   }
 
+  // --- [ส่วนที่แก้ไขและเติมเต็ม] ---
   Future<void> _analyzeAndNavigate() async {
-    if (!mounted) return;
+    if (_audioPath == null || !mounted) {
+      print("ไม่พบไฟล์เสียง หรือ context ไม่พร้อมใช้งาน");
+      return;
+    }
 
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (context) => const Dialog(
-        backgroundColor: Colors.transparent,
-        elevation: 0,
-        child: Center(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              CircularProgressIndicator(color: Colors.white),
-              SizedBox(height: 20),
-              Text(
-                "กำลังวิเคราะห์อารมณ์...",
-                style: TextStyle(
-                  color: Colors.white,
-                  fontSize: 18,
-                  decoration: TextDecoration.none,
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
+    // 1. นำทางไปยังหน้า "กำลังวิเคราะห์..." ทันที
+    //    เพื่อให้ผู้ใช้เห็นว่าแอปกำลังทำงาน
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (context) => const AnalysisPage()), // ใช้ AnalysisPage ที่คุณสร้างไว้
     );
 
     try {
-      final results = await _classifier.predict(_audioPath!);
+      // 2. เรียกใช้โมเดลเพื่อวิเคราะห์เสียง (ทำงานเบื้องหลัง)
+      print("กำลังเริ่มวิเคราะห์ไฟล์: $_audioPath");
+      final Map<String, dynamic> rawResults = await classifier.predict(_audioPath!);
+      print("วิเคราะห์เสร็จสิ้น, ผลลัพธ์ดิบ: $rawResults");
 
-      if (!mounted) return;
-
-      Navigator.of(context).pop();
-      Navigator.push(
-        context,
-        MaterialPageRoute(
-          builder: (context) => ResultPage(results: results),
-        ),
+      // แปลงผลลัพธ์จาก Map<String, dynamic> เป็น Map<String, double>
+      final Map<String, double> results = rawResults.map(
+        (key, value) => MapEntry(key, (value as num).toDouble()),
       );
+
+      // 3. เมื่อได้ผลลัพธ์แล้ว, ให้ "แทนที่" หน้า AnalysisPage ด้วย ResultPage
+      //    พร้อมกับส่งผลลัพธ์ (results) ไปด้วย
+      if (mounted) {
+        Navigator.pushReplacement( // ใช้ pushReplacement สำคัญมาก!
+          context,
+          MaterialPageRoute(
+            // ส่ง results ที่แปลงแล้วไปยัง ResultPage
+            builder: (context) => ResultPage(analysisResult: results),
+          ),
+        );
+      }
     } catch (e) {
-      print("Error during analysis: $e");
-      if (!mounted) return;
-      
-      Navigator.of(context).pop();
-      
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('เกิดข้อผิดพลาดในการวิเคราะห์เสียง กรุณาลองใหม่อีกครั้ง'),
-          backgroundColor: Colors.red,
-        ),
-      );
+      // 4. จัดการ Error ที่อาจเกิดขึ้นระหว่างการวิเคราะห์
+      print("เกิดข้อผิดพลาดรุนแรงระหว่างการวิเคราะห์: $e");
+      if (mounted) {
+        // นำหน้า Loading ออกจากหน้าจอ
+        Navigator.pop(context); 
+        // แสดงข้อความแจ้งเตือน Error
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text("เกิดข้อผิดพลาด: $e"),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
     }
   }
+
 
   @override
   Widget build(BuildContext context) {
@@ -162,7 +178,7 @@ class _RecordingPageState extends State<RecordingPage> {
             ),
             const SizedBox(height: 50),
             GestureDetector(
-              onTap: _isRecorderInitialized ? _toggleRecording : null, // ป้องกันการกดก่อนที่ recorder จะพร้อม
+              onTap: _isRecorderReady ? _toggleRecording : null,
               child: Container(
                 width: 130,
                 height: 130,
@@ -178,8 +194,11 @@ class _RecordingPageState extends State<RecordingPage> {
                     ),
                   ],
                 ),
-                child: !_isRecorderInitialized
-                    ? const CircularProgressIndicator(color: Colors.white) // แสดง loading ขณะรอ init
+                child: !_isRecorderReady
+                    ? const Padding(
+                        padding: EdgeInsets.all(30.0),
+                        child: CircularProgressIndicator(color: Colors.white, strokeWidth: 5),
+                      )
                     : Icon(
                         _isRecording ? Icons.stop : Icons.mic,
                         color: Colors.white,
@@ -189,7 +208,7 @@ class _RecordingPageState extends State<RecordingPage> {
             ),
             const SizedBox(height: 25),
             Text(
-              _isRecording ? 'กำลังบันทึก...' : (_isRecorderInitialized ? 'แตะเพื่อเริ่มบันทึก' : 'กำลังเตรียมไมโครโฟน...'),
+              _isRecording ? 'กำลังบันทึก...' : (_isRecorderReady ? 'แตะอีกครั้งเพื่อหยุดและวิเคราะห์' : 'กำลังเตรียมระบบ...'),
               style: TextStyle(fontSize: 18, color: Colors.grey[700]),
             ),
           ],
