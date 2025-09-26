@@ -30,9 +30,10 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
-  tflite_flutter: ^0.11.0
+
+  http: ^1.1.0
   record: ^6.0.0 
-  permission_handler: ^11.1.0
+  permission_handler: ^12.0.1
   flutter_sound: ^9.2.13
   collection: ^1.18.0
   wav: ^1.2.0
@@ -73,8 +74,8 @@ flutter:
   assets:
      - assets/
      - assets/images/logo.jpg
-     - assets/new_model.tflite
-     - assets/labels.txt
+     - assets/images/correct.png
+     - assets/images/incorrect.png
 
   # An image asset can refer to one or more resolution-specific "variants", see
   # https://flutter.dev/to/resolutionfl-aware-images

@@ -1,16 +1,12 @@
 import 'package:flutter/material.dart';
-import 'package:fungjai_app_new/pages/home_page.dart'; 
-import 'package:fungjai_app_new/services/emotion_classifier_service.dart'; // แก้ไข path ตามโปรเจคของคุณ
-import 'package:fungjai_app_new/globals.dart';
-final EmotionClassifierService classifier = EmotionClassifierService();
+import 'package:fungjai_app_new/pages/splash_page.dart';
+import 'package:fungjai_app_new/services/emotion_api_service.dart'; 
 
-void main() async {
+final EmotionApiService classifier = EmotionApiService();
+
+Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   
-  print("Main: Initializing classifier...");
-  await classifier.init(); 
-  print("Main: Classifier initialized!");
-
   runApp(const MyApp());
 }
 
@@ -20,16 +16,13 @@ class MyApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      navigatorKey: navigatorKey,
       title: 'ฟังใจ',
       theme: ThemeData(
-        primarySwatch: Colors.green,
-        appBarTheme: const AppBarTheme(
-          backgroundColor: Color(0xFF1B7070),
-          foregroundColor: Colors.white,
-        )
+        primarySwatch: Colors.teal,
+        fontFamily: 'Sarabun',
       ),
-      home: const HomePage(),
+      home: const SplashPage(),
+      debugShowCheckedModeBanner: false,
     );
   }
 }
