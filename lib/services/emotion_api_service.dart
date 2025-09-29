@@ -4,7 +4,7 @@ import 'package:http/http.dart' as http;
 import 'prediction_result.dart'; 
 
 class EmotionApiService {
-  static const String _apiUrl = "http://192.168.1.121:5000/predict";
+  static const String _apiUrl = "http://192.168.96.1:5000/predict";
 
   Future<PredictionResult> predict(String audioPath) async {
     print("ApiService: Predicting for audio at $audioPath");

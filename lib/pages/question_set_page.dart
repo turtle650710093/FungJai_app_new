@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
-import 'package:fungjai_app_new/helpers/database_helper.dart';
 import 'package:fungjai_app_new/pages/question_page.dart';
 import 'package:fungjai_app_new/pages/result_page.dart';
 import 'package:fungjai_app_new/pages/set_summary_page.dart';
+import 'package:fungjai_app_new/services/database_helper.dart';
 import 'package:fungjai_app_new/services/prediction_result.dart';
 
 class QuestionSetPage extends StatefulWidget {
@@ -13,44 +13,69 @@ class QuestionSetPage extends StatefulWidget {
 }
 
 class _QuestionSetPageState extends State<QuestionSetPage> {
-  // --- State Variables ---
   List<String> _questions = [];
-  bool _isLoading = true; // สถานะสำหรับตอนดึงคำถามจาก DB
+  bool _isLoading = true;
+  String _errorMessage = '';
   int _currentQuestionIndex = 0;
   final List<PredictionResult> _sessionResults = [];
 
   @override
   void initState() {
     super.initState();
+    print('🚀 QuestionSetPage: Starting to load questions...');
     _loadQuestionSet();
   }
 
-  // [NEW] ดึงชุดคำถามแบบสุ่มจาก SQLite
   Future<void> _loadQuestionSet() async {
-    final dbHelper = DatabaseHelper.instance;
-    final questionSet = await dbHelper.getRandomQuestionSet();
-    if (mounted) {
-      setState(() {
-        _questions = questionSet;
-        _isLoading = false;
-      });
-      // ถ้ามีคำถาม ให้เริ่มคำถามแรก
-      if (_questions.isNotEmpty) {
-        _askQuestion(_currentQuestionIndex);
+    try {
+      print('📂 QuestionSetPage: Getting database instance...');
+      final dbHelper = DatabaseHelper.instance;
+      
+      print('🎯 QuestionSetPage: Fetching random question set...');
+      final questionSet = await dbHelper.getRandomQuestionSet();
+      
+      print('✅ QuestionSetPage: Got ${questionSet.length} questions');
+      questionSet.forEach((q) => print('   - $q'));
+
+      if (mounted) {
+        setState(() {
+          _questions = questionSet;
+          _isLoading = false;
+          if (_questions.isEmpty) {
+            _errorMessage = 'ไม่พบชุดคำถามในระบบ กรุณาลองใหม่อีกครั้ง';
+          }
+        });
+
+        if (_questions.isNotEmpty) {
+          print('🎤 QuestionSetPage: Starting first question...');
+          // รอสักครู่แล้วค่อยเปิดคำถามแรก
+          Future.delayed(const Duration(milliseconds: 500), () {
+            if (mounted) _askQuestion(_currentQuestionIndex);
+          });
+        }
+      }
+    } catch (e) {
+      print('❌ QuestionSetPage: Error loading questions: $e');
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+          _errorMessage = 'เกิดข้อผิดพลาดในการโหลดคำถาม: $e';
+        });
       }
     }
   }
 
-  // [NEW] ฟังก์ชันสำหรับนำทางไปหน้าคำถาม
   void _askQuestion(int index) {
+    print('🎤 QuestionSetPage: Asking question $index: ${_questions[index]}');
+    
     Navigator.of(context).push(
       MaterialPageRoute(
         builder: (context) => QuestionPage(
           question: _questions[index],
           questionNumber: index + 1,
           totalQuestions: _questions.length,
-          // ส่งผลลัพธ์กลับมาที่นี่เมื่อตอบเสร็จ
           onAnswered: (result) {
+            print('✅ QuestionSetPage: Got answer for question $index');
             _handleAnalysisComplete(result);
           },
         ),
@@ -58,51 +83,48 @@ class _QuestionSetPageState extends State<QuestionSetPage> {
     );
   }
 
-  // [NEW] เมื่อวิเคราะห์ผลของข้อนั้นๆ เสร็จ
   void _handleAnalysisComplete(PredictionResult result) {
-    // เก็บผลลัพธ์
+    print('📊 QuestionSetPage: Analysis result: ${result.emotion} (${result.confidence})');
+    
     _sessionResults.add(result);
-
-    // แสดงหน้าผลลัพธ์รายข้อ
-      Navigator.of(context).push(
-    MaterialPageRoute(
-      builder: (context) => ResultPage(
-        analysisResult: result, // ส่งผลลัพธ์ของข้อนี้
-        isLastQuestion: _currentQuestionIndex == _questions.length - 1,
-        onNext: () {
-          Navigator.of(context).pop(); // ปิด ResultPage
-          _goToNextStep();
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (context) => ResultPage(
+          analysisResult: result,
+          isLastQuestion: _currentQuestionIndex == _questions.length - 1,
+          onNext: () {
+            Navigator.of(context).pop();
+            _goToNextStep();
           },
         ),
       ),
     );
   }
 
-  // [NEW] ตัดสินใจว่าจะไปข้อถัดไป หรือไปหน้าสรุป
   void _goToNextStep() {
+    print('➡️ QuestionSetPage: Going to next step. Current: $_currentQuestionIndex, Total: ${_questions.length}');
+    
     if (_currentQuestionIndex < _questions.length - 1) {
-      // ยังมีคำถามถัดไป
       setState(() {
         _currentQuestionIndex++;
       });
       _askQuestion(_currentQuestionIndex);
     } else {
-      // เป็นข้อสุดท้ายแล้ว, ไปหน้าสรุปผล
+      print('🏁 QuestionSetPage: All questions completed. Going to summary.');
       Navigator.of(context).pushReplacement(
         MaterialPageRoute(
           builder: (context) => SetSummaryPage(
             results: _sessionResults,
             onNextSet: () {
-               // หากผู้ใช้ต้องการทำชุดคำถามใหม่
-               // รีเซ็ต state แล้วเริ่มโหลดชุดคำถามใหม่
-               Navigator.of(context).pop();
-               setState(() {
-                  _questions = [];
-                  _isLoading = true;
-                  _currentQuestionIndex = 0;
-                  _sessionResults.clear();
-               });
-               _loadQuestionSet();
+              Navigator.of(context).pop();
+              setState(() {
+                _questions = [];
+                _isLoading = true;
+                _errorMessage = '';
+                _currentQuestionIndex = 0;
+                _sessionResults.clear();
+              });
+              _loadQuestionSet();
             },
           ),
         ),
@@ -116,13 +138,106 @@ class _QuestionSetPageState extends State<QuestionSetPage> {
       backgroundColor: const Color(0xFFF5F5DC),
       appBar: AppBar(
         title: const Text('ชุดคำถาม'),
+        backgroundColor: const Color(0xFF1B7070),
+        foregroundColor: Colors.white,
       ),
       body: Center(
-        child: _isLoading
-            ? const CircularProgressIndicator()
-            : _questions.isEmpty
-                ? const Text('ไม่พบชุดคำถามในระบบ')
-                : const Text('กำลังเตรียมคำถาม...'), // หน้านี้จะแสดงแค่แวบเดียว
+        child: Padding(
+          padding: const EdgeInsets.all(24.0),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              if (_isLoading) ...[
+                const CircularProgressIndicator(
+                  color: Color(0xFF1B7070),
+                ),
+                const SizedBox(height: 24),
+                const Text(
+                  'กำลังเตรียมชุดคำถาม...',
+                  style: TextStyle(
+                    fontSize: 18,
+                    color: Colors.black54,
+                  ),
+                ),
+                const SizedBox(height: 16),
+                const Text(
+                  'กรุณารอสักครู่',
+                  style: TextStyle(
+                    fontSize: 14,
+                    color: Colors.grey,
+                  ),
+                ),
+              ] else if (_errorMessage.isNotEmpty) ...[
+                const Icon(
+                  Icons.error_outline,
+                  size: 64,
+                  color: Colors.orange,
+                ),
+                const SizedBox(height: 24),
+                Text(
+                  _errorMessage,
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(
+                    fontSize: 16,
+                    color: Colors.black87,
+                  ),
+                ),
+                const SizedBox(height: 24),
+                ElevatedButton(
+                  onPressed: () {
+                    setState(() {
+                      _isLoading = true;
+                      _errorMessage = '';
+                    });
+                    _loadQuestionSet();
+                  },
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF1B7070),
+                    foregroundColor: Colors.white,
+                  ),
+                  child: const Text('ลองใหม่'),
+                ),
+              ] else if (_questions.isEmpty) ...[
+                const Icon(
+                  Icons.help_outline,
+                  size: 64,
+                  color: Colors.grey,
+                ),
+                const SizedBox(height: 24),
+                const Text(
+                  'ไม่พบคำถามในระบบ',
+                  style: TextStyle(
+                    fontSize: 18,
+                    color: Colors.black54,
+                  ),
+                ),
+              ] else ...[
+                const Icon(
+                  Icons.psychology,
+                  size: 64,
+                  color: Color(0xFF1B7070),
+                ),
+                const SizedBox(height: 24),
+                const Text(
+                  'กำลังเตรียมคำถามแรก...',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    fontSize: 18,
+                    color: Color(0xFF1B7070),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                Text(
+                  'จำนวนคำถาม: ${_questions.length} คำถาม',
+                  style: const TextStyle(
+                    fontSize: 14,
+                    color: Colors.grey,
+                  ),
+                ),
+              ],
+            ],
+          ),
+        ),
       ),
     );
   }

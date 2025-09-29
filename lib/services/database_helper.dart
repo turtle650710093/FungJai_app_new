@@ -2,25 +2,23 @@ import 'package:sqflite/sqflite.dart';
 import 'package:path/path.dart';
 import 'package:path_provider/path_provider.dart';
 import 'dart:io';
+import 'dart:math';
 
 class DatabaseHelper {
   static const _databaseName = "FungjaiApp.db";
   static const _databaseVersion = 1;
 
-  // ทำให้คลาสนี้เป็น singleton class
+  // Singleton pattern
   DatabaseHelper._privateConstructor();
   static final DatabaseHelper instance = DatabaseHelper._privateConstructor();
 
-  // มี database reference ได้เพียงอันเดียว
   static Database? _database;
   Future<Database> get database async {
     if (_database != null) return _database!;
-    // ถ้า database เป็น null ให้ทำการ initialize
     _database = await _initDatabase();
     return _database!;
   }
 
-  // ฟังก์ชันสำหรับ initialize database
   _initDatabase() async {
     Directory documentsDirectory = await getApplicationDocumentsDirectory();
     String path = join(documentsDirectory.path, _databaseName);
@@ -29,12 +27,20 @@ class DatabaseHelper {
         onCreate: _onCreate);
   }
 
-  // ฟังก์ชันสำหรับสร้างตารางเมื่อเปิดแอปครั้งแรก
   Future _onCreate(Database db, int version) async {
+    await db.execute('''
+      CREATE TABLE question_sets (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        set_name TEXT NOT NULL
+      )
+    ''');
+
     await db.execute('''
       CREATE TABLE questions (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
-        question_text TEXT NOT NULL
+        set_id INTEGER NOT NULL,
+        question_text TEXT NOT NULL,
+        FOREIGN KEY (set_id) REFERENCES question_sets (id)
       )
     ''');
 
@@ -45,74 +51,118 @@ class DatabaseHelper {
         question_id INTEGER,
         audio_path TEXT NOT NULL,
         detected_emotion TEXT NOT NULL,
-        positive_score REAL,
-        sad_score REAL,
-        neutral_score REAL,
-        angry_score REAL,
+        confidence REAL,
         FOREIGN KEY (question_id) REFERENCES questions (id)
       )
     ''');
     
-    // เพิ่มข้อมูลคำถามเริ่มต้นเข้าไปในตาราง
-    await _insertInitialQuestions(db);
+    await _insertInitialData(db);
   }
   
-  // ฟังก์ชันสำหรับใส่คำถามเริ่มต้น
-  Future<void> _insertInitialQuestions(Database db) async {
-      List<String> initialQuestions = [
-        "เรื่องราวที่ทำให้คุณมีความสุขที่สุดในสัปดาห์นี้คืออะไร?",
-        "วันนี้มีอะไรที่ทำให้คุณยิ้มได้บ้าง เล่าให้ฟังหน่อยสิ",
-        "ความทรงจำในวัยเด็กที่คุณชอบที่สุดคือเรื่องอะไร?",
-        "ถ้าเปรียบเทียบความรู้สึกตอนนี้เป็นสภาพอากาศ มันจะเป็นแบบไหน?",
-        "มีเพลงไหนที่ฟังแล้วทำให้นึกถึงความหลังบ้างไหม?",
-        "สถานที่ที่คุณไปแล้วรู้สึกสบายใจที่สุดคือที่ไหน?",
-        "เล่าถึงความสำเร็จเล็กๆ น้อยๆ ที่คุณภูมิใจให้ฟังหน่อย"
-      ];
+  Future<void> _insertInitialData(Database db) async {
+    // เพิ่มชุดคำถาม
+    final questionSets = [
+      'ความทรงจำในวัยเด็ก',
+      'ครอบครัวและคนสำคัญ', 
+      'เหตุการณ์สำคัญในชีวิต',
+      'บ้านและความอบอุ่น'
+    ];
+
+    final questions = [
+      // ชุดที่ 1: ความทรงจำในวัยเด็ก
+      [
+        "ในวัยเด็กคุณชอบทำกิจกรรมอะไรกับเพื่อนมากที่สุด?",
+        "มีสถานที่ไหนในวัยเด็กที่คุณชอบไปบ่อยๆ เพราะอะไร?", 
+        "มีของเล่นชิ้นไหนที่คุณผูกพันเป็นพิเศษ?",
+        "เคยได้รับของขวัญชิ้นที่ประทับใจที่สุดในวัยเด็กไหม? เล่าให้ฟังหน่อย",
+        "หากย้อนเวลากลับไปได้หนึ่งวันในวัยเด็ก คุณอยากกลับไปวันที่ไหน?"
+      ],
+      // ชุดที่ 2: ครอบครัวและคนสำคัญ
+      [
+        "ใครคือคนที่คุณรู้สึกผูกพันมากที่สุดในชีวิต?",
+        "คุณจำได้ไหมว่าเคยมีช่วงเวลาประทับใจอะไรกับเขา?",
+        "มีคำพูดไหนจากเขาที่คุณยังจำได้จนถึงวันนี้?", 
+        "เมื่อคิดถึงเขาตอนนี้ คุณรู้สึกอย่างไร?",
+        "ถ้าเขาอยู่ตรงหน้าคุณตอนนี้ คุณอยากพูดอะไรกับเขา?"
+      ],
+      // ชุดที่ 3: เหตุการณ์สำคัญในชีวิต
+      [
+        "คุณเคยเจอเหตุการณ์สำคัญอะไรในชีวิตที่เปลี่ยนคุณไปมากที่สุด?",
+        "ตอนนั้นคุณรู้สึกยังไง? กลัว ตื่นเต้น หรือมีความหวัง?",
+        "คุณจัดการกับความรู้สึกในช่วงเวลานั้นอย่างไร?",
+        "คุณได้เรียนรู้อะไรจากเหตุการณ์นั้นบ้าง?",
+        "ถ้าให้ย้อนกลับไปอีกครั้ง คุณจะเลือกทำแบบเดิมไหม?"
+      ],
+      // ชุดที่ 4: บ้านและความอบอุ่น
+      [
+        "บ้านหลังแรกที่คุณอยู่เป็นแบบไหน? จำรายละเอียดได้ไหม?",
+        "มื้อาหารกับครอบครัวที่คุณประทับใจที่สุดคือมื้อไหน?",
+        "คุณมีบทบาทหรือหน้าที่อะไรในบ้านตอนนั้น?",
+        "มีใครในครอบครัวที่คอยดูแลและเป็นแบบอย่างให้คุณบ้าง?",
+        "ถ้าพูดถึงคำว่า \"บ้าน\" ตอนนี้ คุณนึกถึงอะไรเป็นอย่างแรก?"
+      ]
+    ];
+
+    // Insert question sets และ questions
+    for (int i = 0; i < questionSets.length; i++) {
+      int setId = await db.insert('question_sets', {'set_name': questionSets[i]});
       
-      for (String q in initialQuestions) {
-        await db.insert('questions', {'question_text': q});
+      for (String question in questions[i]) {
+        await db.insert('questions', {
+          'set_id': setId,
+          'question_text': question
+        });
       }
-      print("DEBUG: Initial questions inserted.");
+    }
   }
 
+Future<List<String>> getRandomQuestionSet() async {
+  try {
+    print('🗄️ DatabaseHelper: Getting database instance...');
+    final db = await database;
+    
+    print('🗄️ DatabaseHelper: Querying question_sets table...');
+    final sets = await db.query('question_sets');
+    print('🗄️ DatabaseHelper: Found ${sets.length} question sets');
+    
+    if (sets.isEmpty) {
+      print('❌ DatabaseHelper: No question sets found!');
+      return [];
+    }
+    
+    final randomSet = sets[Random().nextInt(sets.length)];
+    final setId = randomSet['id'];
+    final setName = randomSet['set_name'];
+    print('🎯 DatabaseHelper: Selected set: $setName (ID: $setId)');
+    
+    print('🗄️ DatabaseHelper: Querying questions for set $setId...');
+    final questions = await db.query(
+      'questions',
+      where: 'set_id = ?',
+      whereArgs: [setId],
+      orderBy: 'id ASC'
+    );
+    
+    print('🗄️ DatabaseHelper: Found ${questions.length} questions');
+    
+    final questionList = questions.map((q) => q['question_text'] as String).toList();
+    print('✅ DatabaseHelper: Returning questions: ${questionList.length}');
+    
+    return questionList;
+  } catch (e) {
+    print('❌ DatabaseHelper: Error in getRandomQuestionSet: $e');
+    rethrow;
+  }
+} 
 
-  // -------- Helper Methods --------
-
-  // ฟังก์ชันสำหรับเพิ่มข้อมูล (INSERT)
+  // Helper methods
   Future<int> insert(String table, Map<String, dynamic> row) async {
     Database db = await instance.database;
     return await db.insert(table, row);
   }
 
-  // ฟังก์ชันสำหรับดึงข้อมูลทั้งหมด (QUERY ALL)
   Future<List<Map<String, dynamic>>> queryAllRows(String table) async {
     Database db = await instance.database;
     return await db.query(table);
-  }
-
-  // ฟังก์ชันสำหรับดึงข้อมูลตามเงื่อนไข (QUERY SPECIFIC)
-  // ตัวอย่าง: queryRows('emotion_records', where: 'id = ?', whereArgs: [someId])
-  Future<List<Map<String, dynamic>>> queryRows(String table, {String? where, List<dynamic>? whereArgs}) async {
-    Database db = await instance.database;
-    return await db.query(table, where: where, whereArgs: whereArgs);
-  }
-
-  // ฟังก์ชันสำหรับนับจำนวนแถว
-  Future<int?> queryRowCount(String table) async {
-    Database db = await instance.database;
-    return Sqflite.firstIntValue(await db.rawQuery('SELECT COUNT(*) FROM $table'));
-  }
-
-  // ฟังก์ชันสำหรับอัปเดตข้อมูล (UPDATE)
-  Future<int> update(String table, Map<String, dynamic> row) async {
-    Database db = await instance.database;
-    int id = row['id'];
-    return await db.update(table, row, where: 'id = ?', whereArgs: [id]);
-  }
-
-  // ฟังก์ชันสำหรับลบข้อมูล (DELETE)
-  Future<int> delete(String table, int id) async {
-    Database db = await instance.database;
-    return await db.delete(table, where: 'id = ?', whereArgs: [id]);
   }
 }

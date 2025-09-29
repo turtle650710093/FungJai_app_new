@@ -1,6 +1,27 @@
 import 'package:flutter/material.dart';
 import 'package:fungjai_app_new/services/prediction_result.dart';
 
+String _getEmotionIcon(String emotion) {
+  switch (emotion.toLowerCase()) {
+    case 'angry': return '😡';
+    case 'frustrated': return '😤';  
+    case 'happy': return '😊';
+    case 'neutral': return '😐';
+    case 'sad': return '😢';
+    default: return '🤔';
+  }
+}
+
+String _getEmotionColorName(String emotion) {
+  switch (emotion.toLowerCase()) {
+    case 'angry': return 'แดงเข้ม';
+    case 'frustrated': return 'ส้มเข้ม';
+    case 'happy': return 'เหลืองสดใส';
+    case 'neutral': return 'เทาอ่อน';
+    case 'sad': return 'น้ำเงินเข้ม';
+    default: return 'ไม่ทราบ';
+  }
+}
 class ResultPage extends StatelessWidget {
   final PredictionResult analysisResult;
   final bool isLastQuestion; // พารามิเตอร์สำหรับบอกว่าเป็นข้อสุดท้าย/หน้าสรุปหรือไม่

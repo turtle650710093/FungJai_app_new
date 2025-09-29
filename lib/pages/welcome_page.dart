@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
-import 'package:fungjai_app_new/pages/question_page.dart';
-import 'package:fungjai_app_new/pages/recording_page.dart';
+import 'package:fungjai_app_new/pages/question_set_page.dart';
+import 'package:fungjai_app_new/pages/storytelling_recording_page.dart';
 
 class WelcomePage extends StatelessWidget {
   const WelcomePage({super.key});
@@ -30,15 +30,14 @@ class WelcomePage extends StatelessWidget {
             Row(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                // ปุ่ม "อยากเล่า" (yes)
                 Column(
                   children: [
                     const Text('อยากเล่า', style: TextStyle(fontFamily: 'Kanit')),
                     GestureDetector(
                       onTap: () {
-                        Navigator.pushReplacement(
+                        Navigator.push(
                           context, 
-                          MaterialPageRoute(builder: (_) => const RecordingPage()),
+                          MaterialPageRoute(builder: (_) => const StoryTellingPage()),
                         );
                       },
                       child: Image.asset(
@@ -57,8 +56,8 @@ class WelcomePage extends StatelessWidget {
                       onTap: () {
                         Navigator.push(
                           context,
-                          MaterialPageRoute(builder: (_) => const QuestionPage()),
-                          );
+                          MaterialPageRoute(builder: (_) => const QuestionSetPage()),
+                        );
                       },
                       child: Image.asset(
                         'assets/images/incorrect.png',
