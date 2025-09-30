@@ -1,13 +1,14 @@
+// lib/services/emotion_database_helper.dart
 import 'package:sqflite/sqflite.dart';
 import 'package:path/path.dart';
 
-class DatabaseHelper {
-  static final DatabaseHelper _instance = DatabaseHelper._internal();
+class EmotionDatabaseHelper {
+  static final EmotionDatabaseHelper _instance = EmotionDatabaseHelper._internal();
   static Database? _database;
 
-  factory DatabaseHelper() => _instance;
+  factory EmotionDatabaseHelper() => _instance;
 
-  DatabaseHelper._internal();
+  EmotionDatabaseHelper._internal();
 
   Future<Database> get database async {
     if (_database != null) return _database!;
@@ -18,6 +19,8 @@ class DatabaseHelper {
   Future<Database> _initDatabase() async {
     String path = join(await getDatabasesPath(), 'emotion_records.db');
     
+    print('🗄️ EmotionDB: Initializing database at: $path');
+    
     return await openDatabase(
       path,
       version: 1,
@@ -26,7 +29,9 @@ class DatabaseHelper {
   }
 
   Future<void> _onCreate(Database db, int version) async {
-    // ตาราง sessions
+    print('🗄️ EmotionDB: Creating tables...');
+    
+    // ตาราง sessions - เก็บ session การสนทนาแต่ละครั้ง
     await db.execute('''
       CREATE TABLE sessions (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -41,7 +46,7 @@ class DatabaseHelper {
       )
     ''');
 
-    // ตาราง emotion_records
+    // ตาราง emotion_records - เก็บผลการวิเคราะห์อารมณ์แต่ละคำตอบ
     await db.execute('''
       CREATE TABLE emotion_records (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -61,7 +66,7 @@ class DatabaseHelper {
       )
     ''');
 
-    // ตาราง daily_summary
+    // ตาราง daily_summary - สรุปอารมณ์รายวัน
     await db.execute('''
       CREATE TABLE daily_summary (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -76,13 +81,14 @@ class DatabaseHelper {
       )
     ''');
 
-    print('✅ Database tables created successfully');
+    print('✅ EmotionDB: Tables created successfully');
   }
 
   // ============================================
   // Session Methods
   // ============================================
 
+  /// สร้าง session ใหม่
   Future<int> createSession({
     required int questionSetId,
     required String questionSetTitle,
@@ -101,10 +107,11 @@ class DatabaseHelper {
       'created_at': now,
     });
 
-    print('📝 Created new session: $sessionId');
+    print('📝 EmotionDB: Created new session: $sessionId');
     return sessionId;
   }
 
+  /// อัพเดทความคืบหน้าของ session
   Future<void> updateSessionProgress(int sessionId, int completedQuestions) async {
     final db = await database;
     await db.update(
@@ -113,8 +120,10 @@ class DatabaseHelper {
       where: 'id = ?',
       whereArgs: [sessionId],
     );
+    print('📊 EmotionDB: Updated session $sessionId progress: $completedQuestions');
   }
 
+  /// ทำเครื่องหมายว่า session เสร็จสิ้น
   Future<void> completeSession(int sessionId) async {
     final db = await database;
     final now = DateTime.now().toIso8601String();
@@ -129,9 +138,10 @@ class DatabaseHelper {
       whereArgs: [sessionId],
     );
 
-    print('✅ Session $sessionId completed');
+    print('✅ EmotionDB: Session $sessionId completed');
   }
 
+  /// ดึงข้อมูล session
   Future<Map<String, dynamic>?> getSession(int sessionId) async {
     final db = await database;
     final results = await db.query(
@@ -143,6 +153,7 @@ class DatabaseHelper {
     return results.isNotEmpty ? results.first : null;
   }
 
+  /// ดึง sessions ทั้งหมด
   Future<List<Map<String, dynamic>>> getAllSessions({int limit = 50}) async {
     final db = await database;
     return await db.query(
@@ -156,6 +167,7 @@ class DatabaseHelper {
   // Emotion Record Methods
   // ============================================
 
+  /// บันทึกผลการวิเคราะห์อารมณ์
   Future<int> saveEmotionRecord({
     required int sessionId,
     required String questionText,
@@ -183,7 +195,7 @@ class DatabaseHelper {
       'recorded_at': now,
     });
 
-    print('💾 Saved emotion record: $recordId ($emotion: ${(confidence * 100).toStringAsFixed(1)}%)');
+    print('💾 EmotionDB: Saved emotion record: $recordId ($emotion: ${(confidence * 100).toStringAsFixed(1)}%)');
     
     // อัพเดท daily summary
     await _updateDailySummary(DateTime.now());
@@ -191,6 +203,7 @@ class DatabaseHelper {
     return recordId;
   }
 
+  /// ดึงข้อมูลการวิเคราะห์ทั้งหมดใน session
   Future<List<Map<String, dynamic>>> getSessionRecords(int sessionId) async {
     final db = await database;
     return await db.query(
@@ -201,6 +214,7 @@ class DatabaseHelper {
     );
   }
 
+  /// ดึงข้อมูลการวิเคราะห์ทั้งหมด
   Future<List<Map<String, dynamic>>> getAllRecords({int limit = 100}) async {
     final db = await database;
     return await db.query(
@@ -214,6 +228,7 @@ class DatabaseHelper {
   // Statistics & Analysis
   // ============================================
 
+  /// คำนวณสถิติของ session
   Future<Map<String, dynamic>> getSessionStatistics(int sessionId) async {
     final db = await database;
     
@@ -222,7 +237,7 @@ class DatabaseHelper {
     if (records.isEmpty) {
       return {
         'total_records': 0,
-        'emotion_counts': {},
+        'emotion_counts': <String, int>{},
         'avg_confidence': 0.0,
         'dominant_emotion': 'Unknown',
       };
@@ -243,6 +258,8 @@ class DatabaseHelper {
         .reduce((a, b) => a.value > b.value ? a : b)
         .key;
 
+    print('📊 EmotionDB: Session $sessionId stats - Records: ${records.length}, Dominant: $dominantEmotion');
+
     return {
       'total_records': records.length,
       'emotion_counts': emotionCounts,
@@ -251,11 +268,11 @@ class DatabaseHelper {
     };
   }
 
+  /// ดึงสถิติรายวัน
   Future<Map<String, dynamic>> getDailyStatistics(DateTime date) async {
     final db = await database;
     final dateStr = _formatDate(date);
 
-    // ดึงข้อมูลจาก daily_summary
     final summaries = await db.query(
       'daily_summary',
       where: 'date = ?',
@@ -274,6 +291,7 @@ class DatabaseHelper {
     };
   }
 
+  /// ดึงสถิติรายสัปดาห์
   Future<List<Map<String, dynamic>>> getWeeklyStatistics() async {
     final db = await database;
     final endDate = DateTime.now();
@@ -291,15 +309,17 @@ class DatabaseHelper {
   // Daily Summary (Auto-update)
   // ============================================
 
+  /// อัพเดทสรุปรายวันอัตโนมัติ
   Future<void> _updateDailySummary(DateTime date) async {
     final db = await database;
     final dateStr = _formatDate(date);
     final now = DateTime.now().toIso8601String();
 
-    // นับข้อมูลวันนี้
+    // หาช่วงเวลาของวันนั้น
     final startOfDay = DateTime(date.year, date.month, date.day).toIso8601String();
     final endOfDay = DateTime(date.year, date.month, date.day, 23, 59, 59).toIso8601String();
 
+    // ดึงข้อมูลการวิเคราะห์วันนั้น
     final records = await db.query(
       'emotion_records',
       where: 'recorded_at >= ? AND recorded_at <= ?',
@@ -344,6 +364,8 @@ class DatabaseHelper {
       },
       conflictAlgorithm: ConflictAlgorithm.replace,
     );
+
+    print('📅 EmotionDB: Updated daily summary for $dateStr');
   }
 
   // ============================================
@@ -354,21 +376,24 @@ class DatabaseHelper {
     return '${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}';
   }
 
+  /// ลบ session
   Future<void> deleteSession(int sessionId) async {
     final db = await database;
     await db.delete('sessions', where: 'id = ?', whereArgs: [sessionId]);
     await db.delete('emotion_records', where: 'session_id = ?', whereArgs: [sessionId]);
-    print('🗑️ Deleted session: $sessionId');
+    print('🗑️ EmotionDB: Deleted session: $sessionId');
   }
 
+  /// ล้างข้อมูลทั้งหมด
   Future<void> clearAllData() async {
     final db = await database;
     await db.delete('sessions');
     await db.delete('emotion_records');
     await db.delete('daily_summary');
-    print('🗑️ All data cleared');
+    print('🗑️ EmotionDB: All data cleared');
   }
 
+  /// ปิด database
   Future<void> close() async {
     final db = await database;
     await db.close();
