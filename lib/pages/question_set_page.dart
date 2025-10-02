@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:fungjai_app_new/pages/question_page.dart';
 import 'package:fungjai_app_new/pages/result_page.dart';
 import 'package:fungjai_app_new/pages/set_summary_page.dart';
-import 'package:fungjai_app_new/services/question_database_helper.dart';  // ✅ เปลี่ยนตรงนี้
+import 'package:fungjai_app_new/services/question_database_helper.dart';
 import 'package:fungjai_app_new/services/emotion_database_helper.dart';
 import 'package:fungjai_app_new/services/prediction_result.dart';
 import 'session_summary_page.dart';
@@ -20,7 +20,7 @@ class _QuestionSetPageState extends State<QuestionSetPage> {
   String _errorMessage = '';
   int _currentQuestionIndex = 0;
   final List<PredictionResult> _sessionResults = [];
-  
+
   int? _currentSessionId;
   final EmotionDatabaseHelper _emotionDb = EmotionDatabaseHelper();
 
@@ -34,13 +34,12 @@ class _QuestionSetPageState extends State<QuestionSetPage> {
   Future<void> _loadQuestionSet() async {
     try {
       print('📂 QuestionSetPage: Getting database instance...');
-      
-      // ✅ เปลี่ยนตรงนี้
+
       final db = QuestionDatabaseHelper();
-      
+
       print('🎯 QuestionSetPage: Fetching random question set...');
       final questionSet = await db.getRandomQuestionSet();
-      
+
       print('✅ QuestionSetPage: Got ${questionSet.length} questions');
       for (var q in questionSet) {
         print('   - $q');
@@ -58,7 +57,7 @@ class _QuestionSetPageState extends State<QuestionSetPage> {
         if (_questions.isNotEmpty) {
           // สร้าง session ใหม่
           _currentSessionId = await _emotionDb.createSession(
-            questionSetId: 1, // ใช้ค่า default ก่อน
+            questionSetId: 1,
             questionSetTitle: 'ชุดคำถามทั่วไป',
             totalQuestions: _questions.length,
           );
@@ -83,7 +82,7 @@ class _QuestionSetPageState extends State<QuestionSetPage> {
 
   void _askQuestion(int index) {
     print('🎤 QuestionSetPage: Asking question $index: ${_questions[index]}');
-    
+
     Navigator.of(context).push(
       MaterialPageRoute(
         builder: (context) => QuestionPage(
@@ -100,8 +99,10 @@ class _QuestionSetPageState extends State<QuestionSetPage> {
   }
 
   Future<void> _handleAnalysisComplete(PredictionResult result) async {
-    print('📊 QuestionSetPage: Analysis result: ${result.emotion} (${result.confidence})');
-    
+    print(
+      '📊 QuestionSetPage: Analysis result: ${result.emotion} (${result.confidence})',
+    );
+
     _sessionResults.add(result);
 
     // บันทึกลง emotion database
@@ -113,13 +114,7 @@ class _QuestionSetPageState extends State<QuestionSetPage> {
           questionOrder: _currentQuestionIndex,
           emotion: result.emotion,
           confidence: result.confidence,
-            allPredictions: result.allPredictions ?? {
-              'Angry': 0.0,
-              'Frustrated': 0.0,
-              'Happy': 0.0,
-              'Neutral': 0.0,
-              'Sad': 0.0,
-            },
+          allPredictions: result.allPredictions,
         );
 
         await _emotionDb.updateSessionProgress(
@@ -150,8 +145,10 @@ class _QuestionSetPageState extends State<QuestionSetPage> {
   }
 
   Future<void> _goToNextStep() async {
-    print('➡️ QuestionSetPage: Going to next step. Current: $_currentQuestionIndex, Total: ${_questions.length}');
-    
+    print(
+      '➡️ QuestionSetPage: Going to next step. Current: $_currentQuestionIndex, Total: ${_questions.length}',
+    );
+
     if (_currentQuestionIndex < _questions.length - 1) {
       setState(() {
         _currentQuestionIndex++;
@@ -159,12 +156,12 @@ class _QuestionSetPageState extends State<QuestionSetPage> {
       _askQuestion(_currentQuestionIndex);
     } else {
       print('🏁 QuestionSetPage: All questions completed.');
-      
+
       // Complete session
       if (_currentSessionId != null) {
         await _emotionDb.completeSession(_currentSessionId!);
         final stats = await _emotionDb.getSessionStatistics(_currentSessionId!);
-        
+
         if (mounted) {
           Navigator.of(context).pushReplacement(
             MaterialPageRoute(
@@ -203,35 +200,51 @@ class _QuestionSetPageState extends State<QuestionSetPage> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: const Color(0xFFF5F5DC),
-      appBar: AppBar(
-        title: const Text('ชุดคำถาม'),
-        backgroundColor: const Color(0xFF1B7070),
-        foregroundColor: Colors.white,
-      ),
-      body: Center(
-        child: Padding(
-          padding: const EdgeInsets.all(24.0),
+    if (_isLoading) {
+      return Scaffold(
+        backgroundColor: const Color(0xFFF5F5DC),
+        appBar: AppBar(
+          title: const Text('ชุดคำถาม'),
+          backgroundColor: const Color(0xFF1B7070),
+          foregroundColor: Colors.white,
+        ),
+        body: const Center(
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              if (_isLoading) ...[
-                const CircularProgressIndicator(
-                  color: Color(0xFF1B7070),
+              CircularProgressIndicator(color: Color(0xFF1B7070)),
+              SizedBox(height: 24),
+              Text('กำลังเตรียมชุดคำถาม...'),
+            ],
+          ),
+        ),
+      );
+    }
+
+    if (_errorMessage.isNotEmpty) {
+      return Scaffold(
+        backgroundColor: const Color(0xFFF5F5DC),
+        appBar: AppBar(
+          title: const Text('ชุดคำถาม'),
+          backgroundColor: const Color(0xFF1B7070),
+          foregroundColor: Colors.white,
+        ),
+        body: Center(
+          child: Padding(
+            padding: const EdgeInsets.all(24.0),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                const Icon(
+                  Icons.error_outline,
+                  size: 64,
+                  color: Colors.red,
                 ),
-                const SizedBox(height: 24),
-                const Text(
-                  'กำลังเตรียมชุดคำถาม...',
-                  style: TextStyle(fontSize: 18, color: Colors.black54),
-                ),
-              ] else if (_errorMessage.isNotEmpty) ...[
-                const Icon(Icons.error_outline, size: 64, color: Colors.orange),
                 const SizedBox(height: 24),
                 Text(
                   _errorMessage,
                   textAlign: TextAlign.center,
-                  style: const TextStyle(fontSize: 16, color: Colors.black87),
+                  style: const TextStyle(fontSize: 16),
                 ),
                 const SizedBox(height: 24),
                 ElevatedButton(
@@ -248,19 +261,16 @@ class _QuestionSetPageState extends State<QuestionSetPage> {
                   ),
                   child: const Text('ลองใหม่'),
                 ),
-              ] else ...[
-                const Icon(Icons.psychology, size: 64, color: Color(0xFF1B7070)),
-                const SizedBox(height: 24),
-                const Text(
-                  'กำลังเตรียมคำถามแรก...',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(fontSize: 18, color: Color(0xFF1B7070)),
-                ),
               ],
-            ],
+            ),
           ),
         ),
-      ),
+      );
+    }
+
+    return Scaffold(
+      backgroundColor: const Color(0xFFF5F5DC),
+      body: Container(),
     );
   }
 }

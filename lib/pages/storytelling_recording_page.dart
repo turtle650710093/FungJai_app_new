@@ -2,11 +2,10 @@ import 'dart:async';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:record/record.dart';
-import 'package:fungjai_app_new/services/prediction_result.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:permission_handler/permission_handler.dart';
-
-import 'package:fungjai_app_new/main.dart';
+import 'package:fungjai_app_new/services/prediction_result.dart';
+import 'package:fungjai_app_new/services/emotion_api_service.dart';
 import 'package:fungjai_app_new/pages/result_page.dart';
 
 class StoryTellingPage extends StatefulWidget {
@@ -18,6 +17,8 @@ class StoryTellingPage extends StatefulWidget {
 
 class _StoryTellingPageState extends State<StoryTellingPage> {
   final AudioRecorder _audioRecorder = AudioRecorder();
+  final EmotionApiService _apiService = EmotionApiService();
+  
   bool _isRecording = false;
   bool _isProcessing = false;
   String? _audioPath;
@@ -44,8 +45,9 @@ class _StoryTellingPageState extends State<StoryTellingPage> {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('โปรดอนุญาตการเข้าถึงไมโครโฟนในตั้งค่า'),
+          content: Text('กรุณาอนุญาตการเข้าถึงไมโครโฟนในการตั้งค่า'),
           backgroundColor: Colors.red,
+          duration: Duration(seconds: 3),
         ),
       );
     }
@@ -54,15 +56,17 @@ class _StoryTellingPageState extends State<StoryTellingPage> {
   void _startTimer() {
     setState(() => _duration = Duration.zero);
     _timer = Timer.periodic(const Duration(seconds: 1), (timer) {
-      setState(() {
-        _duration = Duration(seconds: _duration.inSeconds + 1);
-      });
+      if (mounted) {
+        setState(() {
+          _duration = Duration(seconds: _duration.inSeconds + 1);
+        });
+      }
     });
   }
 
   Future<void> _startRecording() async {
-    // ตรวจสอบ permission อีกครั้ง
     if (!await _audioRecorder.hasPermission()) {
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('ไม่มีสิทธิ์เข้าถึงไมโครโฟน'),
@@ -73,12 +77,10 @@ class _StoryTellingPageState extends State<StoryTellingPage> {
     }
 
     try {
-      // สร้างไฟล์ path
       final Directory tempDir = await getTemporaryDirectory();
       final timestamp = DateTime.now().millisecondsSinceEpoch;
       final filePath = '${tempDir.path}/story_audio_$timestamp.wav';
 
-      // เริ่มบันทึก
       await _audioRecorder.start(
         const RecordConfig(
           encoder: AudioEncoder.wav,
@@ -94,7 +96,7 @@ class _StoryTellingPageState extends State<StoryTellingPage> {
         _audioPath = filePath;
       });
 
-      print('✅ เริ่มบันทึกเสียง: $filePath');
+      print('🎙️ เริ่มบันทึกเสียง: $filePath');
 
     } catch (e) {
       print('❌ เกิดข้อผิดพลาดในการบันทึก: $e');
@@ -112,8 +114,8 @@ class _StoryTellingPageState extends State<StoryTellingPage> {
   Future<void> _stopRecording() async {
     if (!_isRecording) return;
 
-    // ตรวจสอบระยะเวลาการบันทึกขั้นต่ำ
     if (_duration.inMilliseconds < 1000) {
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('กรุณาบันทึกเสียงอย่างน้อย 1 วินาที'),
@@ -144,8 +146,9 @@ class _StoryTellingPageState extends State<StoryTellingPage> {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
-              content: Text('บันทึกเสียงสำเร็จ! (${_formatDuration(_duration)})'),
+              content: Text('บันทึกเสียงเรียบร้อย (${_formatDuration(_duration)})'),
               backgroundColor: Colors.green,
+              duration: const Duration(seconds: 2),
             ),
           );
         }
@@ -184,6 +187,7 @@ class _StoryTellingPageState extends State<StoryTellingPage> {
 
   Future<void> _analyzeAndNavigate() async {
     if (_audioPath == null) {
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('กรุณาบันทึกเสียงก่อน'),
@@ -193,9 +197,9 @@ class _StoryTellingPageState extends State<StoryTellingPage> {
       return;
     }
 
-    // ตรวจสอบไฟล์อีกครั้ง
     final file = File(_audioPath!);
     if (!await file.exists()) {
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('ไม่พบไฟล์เสียง กรุณาบันทึกใหม่'),
@@ -209,7 +213,8 @@ class _StoryTellingPageState extends State<StoryTellingPage> {
       _isProcessing = true;
     });
 
-    // แสดง Loading Dialog
+    if (!mounted) return;
+
     showDialog(
       context: context,
       barrierDismissible: false,
@@ -236,36 +241,52 @@ class _StoryTellingPageState extends State<StoryTellingPage> {
     );
 
     try {
-      // เรียกใช้ classifier ที่มีอยู่ใน main.dart
-      final PredictionResult result = await classifier.predict(_audioPath!);
+      final result = await _apiService.predictEmotion(_audioPath!);
       
       if (!mounted) return;
+      Navigator.pop(context);
 
-      Navigator.pop(context); // ปิด Loading Dialog
-
-      // ไปหน้าแสดงผล
       Navigator.of(context).push(
         MaterialPageRoute(
           builder: (context) => ResultPage(
             analysisResult: result,
             isLastQuestion: true,
             onNext: () {
-              // กลับไปหน้าหลัก
               Navigator.of(context).popUntil((route) => route.isFirst);
             },
           ),
         ),
       );
 
+    } on SocketException {
+      if (!mounted) return;
+      Navigator.pop(context);
+      
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('ไม่สามารถเชื่อมต่อกับเซิร์ฟเวอร์ได้ กรุณาตรวจสอบการเชื่อมต่ออินเทอร์เน็ต'),
+          backgroundColor: Colors.red,
+          duration: Duration(seconds: 4),
+        ),
+      );
     } catch (e) {
       if (!mounted) return;
-      Navigator.pop(context); // ปิด Loading Dialog
+      Navigator.pop(context);
       
       print('❌ เกิดข้อผิดพลาดในการวิเคราะห์: $e');
+      
+      String errorMessage = 'เกิดข้อผิดพลาดในการวิเคราะห์';
+      if (e.toString().contains('API ตอบกลับด้วย status')) {
+        errorMessage = 'เซิร์ฟเวอร์ไม่สามารถประมวลผลได้ กรุณาลองใหม่';
+      } else if (e.toString().contains('รูปแบบข้อมูล')) {
+        errorMessage = 'ข้อมูลจากเซิร์ฟเวอร์ไม่ถูกต้อง';
+      }
+      
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text("เกิดข้อผิดพลาดในการวิเคราะห์: $e"),
+          content: Text(errorMessage),
           backgroundColor: Colors.red,
+          duration: const Duration(seconds: 3),
         ),
       );
     } finally {
@@ -301,7 +322,6 @@ class _StoryTellingPageState extends State<StoryTellingPage> {
             mainAxisAlignment: MainAxisAlignment.center,
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              // หัวข้อ
               const Text(
                 'วันนี้มีเรื่องอะไรอยากเล่าไหมคะ?',
                 textAlign: TextAlign.center,
@@ -313,7 +333,6 @@ class _StoryTellingPageState extends State<StoryTellingPage> {
               ),
               const SizedBox(height: 48),
               
-              // กล่องแสดงสถานะ
               Container(
                 padding: const EdgeInsets.all(20),
                 decoration: BoxDecoration(
@@ -358,7 +377,6 @@ class _StoryTellingPageState extends State<StoryTellingPage> {
                       ),
                     ),
                     
-                    // แสดงสถานะไฟล์
                     if (!_isRecording && _audioPath != null)
                       Container(
                         margin: const EdgeInsets.only(top: 12),
@@ -385,7 +403,6 @@ class _StoryTellingPageState extends State<StoryTellingPage> {
               
               const Spacer(),
               
-              // ปุ่มต่างๆ
               if (_isProcessing)
                 const Center(
                   child: Column(
@@ -399,7 +416,6 @@ class _StoryTellingPageState extends State<StoryTellingPage> {
               else
                 Column(
                   children: [
-                    // ปุ่มบันทึก/หยุด
                     SizedBox(
                       width: double.infinity,
                       height: 56,
@@ -428,7 +444,6 @@ class _StoryTellingPageState extends State<StoryTellingPage> {
                     
                     const SizedBox(height: 16),
                     
-                    // ปุ่มวิเคราะห์
                     SizedBox(
                       width: double.infinity,
                       height: 56,

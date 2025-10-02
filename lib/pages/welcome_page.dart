@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:fungjai_app_new/pages/question_set_page.dart';
 import 'package:fungjai_app_new/pages/storytelling_recording_page.dart';
+import 'package:fungjai_app_new/widgets/app_drawer.dart';
 
 class WelcomePage extends StatelessWidget {
   const WelcomePage({super.key});
@@ -9,6 +10,12 @@ class WelcomePage extends StatelessWidget {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: const Color(0xFFF9F1E7),
+      appBar: AppBar(
+        backgroundColor: const Color(0xFF1B7070),
+        foregroundColor: Colors.white,
+        title: const Text('FungJai'),
+      ),
+      endDrawer: const AppDrawer(),  
       body: Center(
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
@@ -36,7 +43,7 @@ class WelcomePage extends StatelessWidget {
                     GestureDetector(
                       onTap: () {
                         Navigator.push(
-                          context, 
+                          context,
                           MaterialPageRoute(builder: (_) => const StoryTellingPage()),
                         );
                       },

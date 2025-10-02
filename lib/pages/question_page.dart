@@ -4,8 +4,9 @@ import 'package:flutter/material.dart';
 import 'package:record/record.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:permission_handler/permission_handler.dart';
+import 'package:flutter_tts/flutter_tts.dart';
 import 'package:fungjai_app_new/services/prediction_result.dart';
-import 'package:fungjai_app_new/services/emotion_api_service.dart';  // ✅ เพิ่มบรรทัดนี้
+import 'package:fungjai_app_new/services/emotion_api_service.dart';
 
 class QuestionPage extends StatefulWidget {
   final String question;
@@ -27,10 +28,12 @@ class QuestionPage extends StatefulWidget {
 
 class _QuestionPageState extends State<QuestionPage> {
   final AudioRecorder _audioRecorder = AudioRecorder();
-  final EmotionApiService _apiService = EmotionApiService();  // ✅ เพิ่มบรรทัดนี้
+  final EmotionApiService _apiService = EmotionApiService();
+  final FlutterTts _tts = FlutterTts();
   
   bool _isRecording = false;
   bool _isProcessing = false;
+  bool _isSpeaking = false;
   String? _audioPath;
   Timer? _timer;
   Duration _duration = Duration.zero;
@@ -39,6 +42,7 @@ class _QuestionPageState extends State<QuestionPage> {
   void initState() {
     super.initState();
     print('🎤 QuestionPage: Initialized for question: ${widget.question}');
+    _initTts();
     _requestPermission();
   }
 
@@ -46,7 +50,88 @@ class _QuestionPageState extends State<QuestionPage> {
   void dispose() {
     _timer?.cancel();
     _audioRecorder.dispose();
+    _tts.stop();
     super.dispose();
+  }
+
+  Future<void> _initTts() async {
+    try {
+      final languages = await _tts.getLanguages;
+      print('📢 Available languages: $languages');
+      
+      bool langSet = false;
+      for (String lang in ['th-TH', 'th', 'tha']) {
+        try {
+          await _tts.setLanguage(lang);
+          print('✅ Language set to: $lang');
+          langSet = true;
+          break;
+        } catch (e) {
+          print('⚠️ Failed to set $lang: $e');
+        }
+      }
+      
+      if (!langSet) {
+        print('⚠️ Using default language');
+      }
+
+      await _tts.setVolume(1.0);
+      await _tts.setSpeechRate(0.45);
+      await _tts.setPitch(1.0);
+
+      print('🔊 TTS Settings: Volume=100%, Rate=0.45, Pitch=1.0');
+
+      _tts.setStartHandler(() {
+        print('🔊 TTS Started');
+        if (mounted) setState(() => _isSpeaking = true);
+      });
+
+      _tts.setCompletionHandler(() {
+        print('✅ TTS Completed');
+        if (mounted) setState(() => _isSpeaking = false);
+      });
+
+      _tts.setErrorHandler((msg) {
+        print('❌ TTS Error: $msg');
+        if (mounted) setState(() => _isSpeaking = false);
+      });
+
+      await Future.delayed(const Duration(milliseconds: 500));
+      await _speakQuestion();
+      
+    } catch (e) {
+      print('❌ TTS Init Error: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('ไม่สามารถเริ่มระบบอ่านเสียงได้: $e')),
+        );
+      }
+    }
+  }
+
+  Future<void> _speakQuestion() async {
+    try {
+      if (_isSpeaking) {
+        await _tts.stop();
+      }
+      
+      print('🔊 Speaking: ${widget.question}');
+      
+      final result = await _tts.speak(widget.question);
+      
+      if (result == 1) {
+        print('✅ TTS speak success');
+      } else {
+        print('⚠️ TTS speak returned: $result');
+      }
+    } catch (e) {
+      print('❌ Speak Error: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('ไม่สามารถอ่านคำถามได้: $e')),
+        );
+      }
+    }
   }
 
   Future<void> _requestPermission() async {
@@ -76,6 +161,10 @@ class _QuestionPageState extends State<QuestionPage> {
   }
 
   Future<void> _startRecording() async {
+    if (_isSpeaking) {
+      await _tts.stop();
+    }
+
     if (!await _audioRecorder.hasPermission()) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('ไม่มีสิทธิ์เข้าถึงไมโครโฟน')),
@@ -112,7 +201,7 @@ class _QuestionPageState extends State<QuestionPage> {
     }
   }
 
-  Future<void> _stopRecording() async {
+  Future<void> _stopRecordingAndAnalyze() async {
     if (!_isRecording) return;
     
     if (_duration.inMilliseconds < 1000) {
@@ -134,13 +223,9 @@ class _QuestionPageState extends State<QuestionPage> {
         _audioPath = path;
       });
 
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('บันทึกเสียงเรียบร้อย กดส่งคำตอบเพื่อวิเคราะห์'),
-            duration: Duration(seconds: 2),
-          ),
-        );
+      // ส่งไปวิเคราะห์ทันที
+      if (path != null) {
+        await _analyzeAudio(path);
       }
     } catch (e) {
       print('❌ Stop recording error: $e');
@@ -152,18 +237,10 @@ class _QuestionPageState extends State<QuestionPage> {
     }
   }
 
-  Future<void> _analyzeAndSubmit() async {
-    if (_audioPath == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('กรุณาบันทึกเสียงก่อน')),
-      );
-      return;
-    }
-
-    // เช็คว่าไฟล์มีอยู่จริง
-    final file = File(_audioPath!);
+  Future<void> _analyzeAudio(String audioPath) async {
+    final file = File(audioPath);
     if (!await file.exists()) {
-      print('❌ Audio file not found: $_audioPath');
+      print('❌ Audio file not found: $audioPath');
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('ไม่พบไฟล์เสียงที่บันทึก')),
       );
@@ -171,11 +248,10 @@ class _QuestionPageState extends State<QuestionPage> {
     }
 
     setState(() => _isProcessing = true);
-    print('🔄 Analyzing audio: $_audioPath');
+    print('🔄 Analyzing audio: $audioPath');
 
     try {
-      // ✅ เปลี่ยนจาก classifier.predict() เป็น _apiService.predictEmotion()
-      final result = await _apiService.predictEmotion(_audioPath!);
+      final result = await _apiService.predictEmotion(audioPath);
       
       print('✅ Analysis complete: ${result.emotion} (${result.confidence})');
       
@@ -196,6 +272,14 @@ class _QuestionPageState extends State<QuestionPage> {
     }
   }
 
+  Future<void> _toggleRecording() async {
+    if (_isRecording) {
+      await _stopRecordingAndAnalyze();
+    } else {
+      await _startRecording();
+    }
+  }
+
   String _formatDuration(Duration d) {
     String twoDigits(int n) => n.toString().padLeft(2, '0');
     final minutes = twoDigits(d.inMinutes.remainder(60));
@@ -207,44 +291,60 @@ class _QuestionPageState extends State<QuestionPage> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: const Color(0xFFF5F5DC),
-      appBar: AppBar(
-        title: Text('คำถามที่ ${widget.questionNumber}/${widget.totalQuestions}'),
-        backgroundColor: const Color(0xFF1B7070),
-        foregroundColor: Colors.white,
-      ),
       body: SafeArea(
         child: Padding(
           padding: const EdgeInsets.all(24.0),
           child: Column(
             children: [
-              // คำถาม
-              Container(
-                padding: const EdgeInsets.all(20),
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(16),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black.withOpacity(0.05),
-                      blurRadius: 10,
-                      offset: const Offset(0, 4),
-                    ),
-                  ],
-                ),
-                child: Text(
-                  widget.question,
-                  style: const TextStyle(
-                    fontSize: 20,
-                    fontWeight: FontWeight.w500,
-                    height: 1.5,
+              // คำถาม (อ่านซ้ำ)
+              GestureDetector(
+                onTap: () {
+                  print('📱 Question box tapped');
+                  _speakQuestion();
+                },
+                child: Container(
+                  padding: const EdgeInsets.all(20),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(16),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withOpacity(0.05),
+                        blurRadius: 10,
+                        offset: const Offset(0, 4),
+                      ),
+                    ],
+                    border: _isSpeaking 
+                        ? Border.all(color: const Color(0xFF1B7070), width: 2)
+                        : null,
                   ),
-                  textAlign: TextAlign.center,
+                  child: Row(
+                    children: [
+                      Icon(
+                        _isSpeaking ? Icons.volume_up : Icons.volume_up_outlined,
+                        color: const Color(0xFF1B7070),
+                        size: 28,
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Text(
+                          widget.question,
+                          style: const TextStyle(
+                            fontSize: 20,
+                            fontWeight: FontWeight.w500,
+                            height: 1.5,
+                          ),
+                          textAlign: TextAlign.center,
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
               ),
               
-              const SizedBox(height: 40),
+              const Spacer(),
               
-              // แสดงสถานะการบันทึก
+              // Status Display
               Container(
                 padding: const EdgeInsets.all(24),
                 decoration: BoxDecoration(
@@ -266,8 +366,7 @@ class _QuestionPageState extends State<QuestionPage> {
                     ),
                     const SizedBox(height: 12),
                     Text(
-                      _isRecording ? 'กำลังบันทึก...' : 
-                      _audioPath != null ? 'บันทึกเรียบร้อย' : 'พร้อมบันทึกเสียง',
+                      _isRecording ? 'กำลังบันทึก...' : 'พร้อมบันทึกเสียง',
                       style: TextStyle(
                         fontSize: 18,
                         color: _isRecording ? Colors.red : Colors.black87,
@@ -289,72 +388,54 @@ class _QuestionPageState extends State<QuestionPage> {
               
               const Spacer(),
               
-              // ปุ่มควบคุม
+              // Processing Indicator หรือ Record Button
               if (_isProcessing)
                 Column(
                   children: const [
                     CircularProgressIndicator(
                       color: Color(0xFF1B7070),
+                      strokeWidth: 3,
                     ),
                     SizedBox(height: 16),
                     Text(
                       'กำลังวิเคราะห์เสียง...',
-                      style: TextStyle(fontSize: 16, color: Colors.black54),
+                      style: TextStyle(
+                        fontSize: 16,
+                        color: Colors.black54,
+                      ),
                     ),
                   ],
                 )
               else
-                Column(
-                  children: [
-                    SizedBox(
-                      width: double.infinity,
-                      height: 56,
-                      child: ElevatedButton.icon(
-                        onPressed: _isRecording ? _stopRecording : _startRecording,
-                        icon: Icon(_isRecording ? Icons.stop : Icons.mic, size: 24),
-                        label: Text(
-                          _isRecording ? 'หยุดบันทึก' : 'เริ่มบันทึก',
-                          style: const TextStyle(fontSize: 18),
+                // ปุ่มไมโครโฟนวงกลมใหญ่
+                GestureDetector(
+                  onTap: _toggleRecording,
+                  child: Container(
+                    width: 100,
+                    height: 100,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: _isRecording 
+                          ? Colors.red 
+                          : const Color(0xFF1B7070),
+                      boxShadow: [
+                        BoxShadow(
+                          color: (_isRecording ? Colors.red : const Color(0xFF1B7070))
+                              .withOpacity(0.3),
+                          blurRadius: 20,
+                          offset: const Offset(0, 8),
                         ),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: _isRecording ? Colors.red : const Color(0xFF1B7070),
-                          foregroundColor: Colors.white,
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                          elevation: 2,
-                        ),
-                      ),
+                      ],
                     ),
-                    const SizedBox(height: 16),
-                    SizedBox(
-                      width: double.infinity,
-                      height: 56,
-                      child: ElevatedButton.icon(
-                        onPressed: (_isRecording || _audioPath == null) 
-                            ? null 
-                            : _analyzeAndSubmit,
-                        icon: const Icon(Icons.send, size: 24),
-                        label: const Text(
-                          'ส่งคำตอบ',
-                          style: TextStyle(fontSize: 18),
-                        ),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: const Color(0xFF1B7070),
-                          foregroundColor: Colors.white,
-                          disabledBackgroundColor: Colors.grey.shade300,
-                          disabledForegroundColor: Colors.grey.shade600,
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                          elevation: 2,
-                        ),
-                      ),
+                    child: Icon(
+                      _isRecording ? Icons.stop : Icons.mic,
+                      size: 48,
+                      color: Colors.white,
                     ),
-                  ],
+                  ),
                 ),
               
-              const SizedBox(height: 16),
+              const SizedBox(height: 40),
             ],
           ),
         ),
