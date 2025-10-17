@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/cupertino.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:fungjai_app_new/services/notification_service.dart';
 
 class NotificationSettingsPage extends StatefulWidget {
   const NotificationSettingsPage({super.key});
@@ -9,8 +11,11 @@ class NotificationSettingsPage extends StatefulWidget {
 }
 
 class _NotificationSettingsPageState extends State<NotificationSettingsPage> {
+  final NotificationService _notificationService = NotificationService();
+  
   bool _isNotificationEnabled = false;
-  TimeOfDay _selectedTime = const TimeOfDay(hour: 20, minute: 0);
+  int _selectedHour = 20;
+  int _selectedMinute = 0;
   bool _isLoading = true;
 
   @override
@@ -23,9 +28,8 @@ class _NotificationSettingsPageState extends State<NotificationSettingsPage> {
     final prefs = await SharedPreferences.getInstance();
     setState(() {
       _isNotificationEnabled = prefs.getBool('notification_enabled') ?? false;
-      final hour = prefs.getInt('notification_hour') ?? 20;
-      final minute = prefs.getInt('notification_minute') ?? 0;
-      _selectedTime = TimeOfDay(hour: hour, minute: minute);
+      _selectedHour = prefs.getInt('notification_hour') ?? 20;
+      _selectedMinute = prefs.getInt('notification_minute') ?? 0;
       _isLoading = false;
     });
   }
@@ -33,48 +37,161 @@ class _NotificationSettingsPageState extends State<NotificationSettingsPage> {
   Future<void> _saveSettings() async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool('notification_enabled', _isNotificationEnabled);
-    await prefs.setInt('notification_hour', _selectedTime.hour);
-    await prefs.setInt('notification_minute', _selectedTime.minute);
+    await prefs.setInt('notification_hour', _selectedHour);
+    await prefs.setInt('notification_minute', _selectedMinute);
+
+    if (_isNotificationEnabled) {
+      await _notificationService.scheduleDailyNotification(
+        hour: _selectedHour,
+        minute: _selectedMinute,
+      );
+    } else {
+      await _notificationService.cancelAllNotifications();
+    }
 
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('✅ บันทึกการตั้งค่าเรียบร้อย'),
-          backgroundColor: Colors.green,
-          duration: Duration(seconds: 2),
+        SnackBar(
+          content: Row(
+            children: [
+              Icon(
+                _isNotificationEnabled ? Icons.check_circle : Icons.cancel,
+                color: Colors.white,
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text(
+                  _isNotificationEnabled
+                      ? 'ตั้งเวลาแจ้งเตือน ${_formatTime()} แล้ว'
+                      : 'ปิดการแจ้งเตือนแล้ว',
+                ),
+              ),
+            ],
+          ),
+          backgroundColor: _isNotificationEnabled ? Colors.green : Colors.grey,
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+          duration: const Duration(seconds: 2),
         ),
       );
     }
   }
 
-  Future<void> _selectTime() async {
-    final TimeOfDay? picked = await showTimePicker(
-      context: context,
-      initialTime: _selectedTime,
-      builder: (context, child) {
-        return Theme(
-          data: Theme.of(context).copyWith(
-            colorScheme: const ColorScheme.light(
-              primary: Color(0xFF1B7070),
-            ),
-          ),
-          child: child!,
-        );
-      },
-    );
-
-    if (picked != null && picked != _selectedTime) {
-      setState(() {
-        _selectedTime = picked;
-      });
-      await _saveSettings();
-    }
+  String _formatTime() {
+    return '${_selectedHour.toString().padLeft(2, '0')}:${_selectedMinute.toString().padLeft(2, '0')} น.';
   }
 
-  String _formatTime(TimeOfDay time) {
-    final hour = time.hour.toString().padLeft(2, '0');
-    final minute = time.minute.toString().padLeft(2, '0');
-    return '$hour:$minute น.';
+  void _showTimePicker() {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (context) => Container(
+        height: MediaQuery.of(context).size.height * 0.5,
+        decoration: const BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+        ),
+        child: Column(
+          children: [
+            // Header
+            Padding(
+              padding: const EdgeInsets.all(16),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  TextButton(
+                    onPressed: () => Navigator.pop(context),
+                    child: const Text('ยกเลิก'),
+                  ),
+                  const Text(
+                    'เลือกเวลา',
+                    style: TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  TextButton(
+                    onPressed: () {
+                      Navigator.pop(context);
+                      _saveSettings();
+                    },
+                    child: const Text('ตกลง'),
+                  ),
+                ],
+              ),
+            ),
+            const Divider(height: 1),
+            
+            // Time Picker
+            Expanded(
+              child: Row(
+                children: [
+                  // Hour Picker
+                  Expanded(
+                    child: CupertinoPicker(
+                      scrollController: FixedExtentScrollController(
+                        initialItem: _selectedHour,
+                      ),
+                      itemExtent: 50,
+                      onSelectedItemChanged: (index) {
+                        setState(() {
+                          _selectedHour = index;
+                        });
+                      },
+                      children: List.generate(
+                        24,
+                        (index) => Center(
+                          child: Text(
+                            index.toString().padLeft(2, '0'),
+                            style: const TextStyle(
+                              fontSize: 24,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                  
+                  const Text(
+                    ':',
+                    style: TextStyle(fontSize: 32, fontWeight: FontWeight.bold),
+                  ),
+                  
+                  // Minute Picker
+                  Expanded(
+                    child: CupertinoPicker(
+                      scrollController: FixedExtentScrollController(
+                        initialItem: _selectedMinute,
+                      ),
+                      itemExtent: 50,
+                      onSelectedItemChanged: (index) {
+                        setState(() {
+                          _selectedMinute = index;
+                        });
+                      },
+                      children: List.generate(
+                        60,
+                        (index) => Center(
+                          child: Text(
+                            index.toString().padLeft(2, '0'),
+                            style: const TextStyle(
+                              fontSize: 24,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   @override
@@ -86,210 +203,199 @@ class _NotificationSettingsPageState extends State<NotificationSettingsPage> {
     }
 
     return Scaffold(
-      backgroundColor: const Color(0xFFF9F1E7),
+      backgroundColor: const Color(0xFFFFFBF5),
       appBar: AppBar(
-        backgroundColor: const Color(0xFF1B7070),
-        foregroundColor: Colors.white,
-        title: const Text('ตั้งค่าการแจ้งเตือน'),
+        backgroundColor: Colors.white,
         elevation: 0,
+        foregroundColor: const Color(0xFF2D5F5F)
       ),
       body: SingleChildScrollView(
+        padding: const EdgeInsets.all(20),
         child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Header Card
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.all(24),
-              decoration: const BoxDecoration(
-                color: Color(0xFF1B7070),
-                borderRadius: BorderRadius.only(
-                  bottomLeft: Radius.circular(30),
-                  bottomRight: Radius.circular(30),
-                ),
+            // Switch Card
+            Card(
+              elevation: 2,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(16),
               ),
-              child: Column(
-                children: [
-                  Icon(
-                    _isNotificationEnabled 
-                        ? Icons.notifications_active 
-                        : Icons.notifications_off,
-                    size: 64,
-                    color: Colors.white,
-                  ),
-                  const SizedBox(height: 16),
-                  Text(
-                    _isNotificationEnabled 
-                        ? 'การแจ้งเตือนเปิดอยู่' 
-                        : 'การแจ้งเตือนปิดอยู่',
-                    style: const TextStyle(
-                      fontSize: 24,
-                      fontWeight: FontWeight.bold,
-                      color: Colors.white,
+              child: Padding(
+                padding: const EdgeInsets.all(20),
+                child: Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: _isNotificationEnabled
+                            ? const Color(0xFF2D5F5F).withOpacity(0.1)
+                            : Colors.grey.shade200,
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Icon(
+                        _isNotificationEnabled
+                            ? Icons.notifications_active
+                            : Icons.notifications_off,
+                        color: _isNotificationEnabled
+                            ? const Color(0xFF2D5F5F)
+                            : Colors.grey,
+                        size: 32,
+                      ),
                     ),
-                  ),
-                ],
+                    const SizedBox(width: 16),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text(
+                            'เปิดการแจ้งเตือน',
+                            style: TextStyle(
+                              fontSize: 18,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            _isNotificationEnabled
+                                ? 'แจ้งเตือนทุกวัน เวลา ${_formatTime()}'
+                                : 'ปิดอยู่',
+                            style: TextStyle(
+                              fontSize: 14,
+                              color: Colors.grey.shade600,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    Switch(
+                      value: _isNotificationEnabled,
+                      onChanged: (value) async {
+                        setState(() {
+                          _isNotificationEnabled = value;
+                        });
+                        await _saveSettings();
+                      },
+                      activeColor: const Color(0xFF2D5F5F),
+                    ),
+                  ],
+                ),
               ),
             ),
 
-            const SizedBox(height: 24),
+            if (_isNotificationEnabled) ...[
+              const SizedBox(height: 32),
 
-            // Toggle Card
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16),
-              child: Card(
-                elevation: 4,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(16),
-                ),
-                child: Padding(
-                  padding: const EdgeInsets.all(20),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          const Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
+              // Current Time Display
+              Center(
+                child: GestureDetector(
+                  onTap: _showTimePicker,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 40,
+                      vertical: 20,
+                    ),
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        colors: [
+                          const Color(0xFF2D5F5F),
+                          const Color(0xFF2D5F5F).withOpacity(0.8),
+                        ],
+                      ),
+                      borderRadius: BorderRadius.circular(20),
+                      boxShadow: [
+                        BoxShadow(
+                          color: const Color(0xFF2D5F5F).withOpacity(0.3),
+                          blurRadius: 20,
+                          offset: const Offset(0, 10),
+                        ),
+                      ],
+                    ),
+                    child: Column(
+                      children: [
+                        const Text(
+                          'เวลาที่ตั้งไว้',
+                          style: TextStyle(
+                            fontSize: 14,
+                            color: Colors.white70,
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        Text(
+                          _formatTime(),
+                          style: const TextStyle(
+                            fontSize: 56,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.white,
+                            height: 1,
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 16,
+                            vertical: 6,
+                          ),
+                          decoration: BoxDecoration(
+                            color: Colors.white.withOpacity(0.2),
+                            borderRadius: BorderRadius.circular(20),
+                          ),
+                          child: const Row(
+                            mainAxisSize: MainAxisSize.min,
                             children: [
-                              Text(
-                                'เปิด/ปิดการแจ้งเตือน',
-                                style: TextStyle(
-                                  fontSize: 18,
-                                  fontWeight: FontWeight.bold,
-                                ),
+                              Icon(
+                                Icons.touch_app,
+                                size: 16,
+                                color: Colors.white,
                               ),
-                              SizedBox(height: 4),
+                              SizedBox(width: 6),
                               Text(
-                                'รับการแจ้งเตือนรายวัน',
+                                'แตะเพื่อเปลี่ยน',
                                 style: TextStyle(
-                                  fontSize: 14,
-                                  color: Colors.black54,
+                                  fontSize: 12,
+                                  color: Colors.white,
                                 ),
                               ),
                             ],
                           ),
-                          Transform.scale(
-                            scale: 1.2,
-                            child: Switch(
-                              value: _isNotificationEnabled,
-                              onChanged: (value) async {
-                                setState(() {
-                                  _isNotificationEnabled = value;
-                                });
-                                await _saveSettings();
-                              },
-                              activeColor: const Color(0xFF1B7070),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ),
-
-            const SizedBox(height: 16),
-
-            // Time Picker Card
-            if (_isNotificationEnabled)
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16),
-                child: Card(
-                  elevation: 4,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(16),
-                  ),
-                  child: InkWell(
-                    onTap: _selectTime,
-                    borderRadius: BorderRadius.circular(16),
-                    child: Padding(
-                      padding: const EdgeInsets.all(20),
-                      child: Row(
-                        children: [
-                          Container(
-                            padding: const EdgeInsets.all(12),
-                            decoration: BoxDecoration(
-                              color: const Color(0xFF1B7070).withOpacity(0.1),
-                              borderRadius: BorderRadius.circular(12),
-                            ),
-                            child: const Icon(
-                              Icons.access_time,
-                              color: Color(0xFF1B7070),
-                              size: 32,
-                            ),
-                          ),
-                          const SizedBox(width: 16),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                const Text(
-                                  'เวลาที่ต้องการรับการแจ้งเตือน',
-                                  style: TextStyle(
-                                    fontSize: 16,
-                                    fontWeight: FontWeight.w500,
-                                  ),
-                                ),
-                                const SizedBox(height: 4),
-                                Text(
-                                  _formatTime(_selectedTime),
-                                  style: const TextStyle(
-                                    fontSize: 28,
-                                    fontWeight: FontWeight.bold,
-                                    color: Color(0xFF1B7070),
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                          const Icon(
-                            Icons.chevron_right,
-                            color: Colors.black26,
-                            size: 32,
-                          ),
-                        ],
-                      ),
+                        ),
+                      ],
                     ),
                   ),
                 ),
               ),
 
-            const SizedBox(height: 24),
+              const SizedBox(height: 40),
 
-            // Info Card
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16),
-              child: Card(
-                color: Colors.blue.shade50,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(16),
+              // Info Box
+              Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: Colors.blue.shade50,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: Colors.blue.shade200),
                 ),
-                child: const Padding(
-                  padding: EdgeInsets.all(16),
-                  child: Row(
-                    children: [
-                      Icon(
-                        Icons.info_outline,
-                        color: Colors.blue,
-                        size: 24,
-                      ),
-                      SizedBox(width: 12),
-                      Expanded(
-                        child: Text(
-                          'แอปจะแจ้งเตือนคุณในเวลาที่กำหนด\nเพื่อชวนให้มาบันทึกอารมณ์รายวัน',
-                          style: TextStyle(
-                            fontSize: 14,
-                            color: Colors.black87,
-                          ),
+                child: Row(
+                  children: [
+                    Icon(
+                      Icons.lightbulb_outline,
+                      color: Colors.blue.shade700,
+                      size: 24,
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Text(
+                        'แอปจะแจ้งเตือนคุณทุกวันในเวลาที่กำหนด\nเพื่อชวนให้มาบันทึกอารมณ์และความรู้สึก',
+                        style: TextStyle(
+                          fontSize: 13,
+                          color: Colors.grey.shade800,
+                          height: 1.4,
                         ),
                       ),
-                    ],
-                  ),
+                    ),
+                  ],
                 ),
               ),
-            ),
+            ],
           ],
         ),
       ),

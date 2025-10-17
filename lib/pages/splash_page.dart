@@ -69,9 +69,6 @@ class _SplashPageState extends State<SplashPage> with SingleTickerProviderStateM
         _isLoading = false;
       });
 
-      // รอนิดหน่อยเพื่อให้เห็น animation
-      await Future.delayed(const Duration(milliseconds: 500));
-
       if (mounted) {
         Navigator.of(context).pushReplacement(
           PageRouteBuilder(
@@ -140,15 +137,7 @@ class _SplashPageState extends State<SplashPage> with SingleTickerProviderStateM
                 ),
               ),
               const SizedBox(height: 20),
-            ] else ...[
-              const Icon(
-                Icons.check_circle,
-                color: Colors.green,
-                size: 48,
-              ),
-              const SizedBox(height: 20),
             ],
-
             // Loading Text
             Text(
               _loadingText,

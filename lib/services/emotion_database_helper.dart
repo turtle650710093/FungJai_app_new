@@ -139,8 +139,6 @@ class EmotionDatabaseHelper {
     });
   }
 
-  // ✅ เพิ่มฟังก์ชันนี้ใน EmotionDatabaseHelper
-
 Future<List<Map<String, dynamic>>> getRecordsByMonth(DateTime month) async {
   final db = await database;
   

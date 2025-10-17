@@ -3,7 +3,7 @@ import 'package:fungjai_app_new/pages/notification_settings_page.dart';
 import 'package:fungjai_app_new/pages/history_page.dart';
 
 class AppDrawer extends StatelessWidget {
-  const AppDrawer({super.key});  // ✅ เพิ่ม const ที่นี่
+  const AppDrawer({super.key});  
 
   @override
   Widget build(BuildContext context) {

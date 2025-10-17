@@ -1,15 +1,18 @@
 import 'dart:async';
 import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:flutter_tts/flutter_tts.dart';
 import 'package:record/record.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:fungjai_app_new/services/prediction_result.dart';
 import 'package:fungjai_app_new/services/emotion_api_service.dart';
 import 'package:fungjai_app_new/pages/result_page.dart';
+import 'package:fungjai_app_new/widgets/voice_recorder_widget.dart';
 
 class StoryTellingPage extends StatefulWidget {
-  const StoryTellingPage({super.key});
+  final VoidCallback? onComplete;
+  const StoryTellingPage({super.key, this.onComplete});
 
   @override
   State<StoryTellingPage> createState() => _StoryTellingPageState();
@@ -18,25 +21,186 @@ class StoryTellingPage extends StatefulWidget {
 class _StoryTellingPageState extends State<StoryTellingPage> {
   final AudioRecorder _audioRecorder = AudioRecorder();
   final EmotionApiService _apiService = EmotionApiService();
+  final FlutterTts _tts = FlutterTts();
   
   bool _isRecording = false;
   bool _isProcessing = false;
+  bool _isSpeaking = false;
+  bool _ttsReady = false;
+  bool _hasSpokenOnce = false;
+  bool _thaiAvailable = false;
+  bool _isDisposed = false; // ✅ เพิ่ม flag ป้องกัน setState after dispose
   String? _audioPath;
 
   Timer? _timer;
   Duration _duration = Duration.zero;
+  
+  static const String _question = 'วันนี้มีอะไรอยากเล่าให้ฟังไหมคะ?';
 
   @override
   void initState() {
     super.initState();
+    print('🎤 StoryTellingPage: Initialized');
+    _initTts();
     _requestPermission();
   }
 
   @override
   void dispose() {
+    print('🧹 StoryTellingPage: Disposing...');
+    _isDisposed = true; // ✅ เซ็ต flag
+    
     _timer?.cancel();
+    _tts.stop();
+    _tts.setStartHandler(() {});
+    _tts.setCompletionHandler(() {});
+    _tts.setErrorHandler((msg) {});
     _audioRecorder.dispose();
+    
+    print('✅ StoryTellingPage: Disposed successfully');
     super.dispose();
+  }
+
+  Future<void> _initTts() async {
+    try {
+      print('🔊 StoryTelling TTS: Starting initialization...');
+
+      // รอให้ TTS Engine พร้อม
+      await Future.delayed(const Duration(milliseconds: 500));
+
+      // Android Settings
+      print('🤖 Configuring TTS...');
+      await _tts.setVolume(1.0);
+      await _tts.setSpeechRate(0.45);
+      await _tts.setPitch(1.0);
+
+      // เช็คภาษาที่มี
+      final languages = await _tts.getLanguages;
+      print('📢 Available languages: $languages');
+
+      // ลองตั้งภาษาไทย
+      bool thaiSet = false;
+      for (String lang in ['th-TH', 'th']) {
+        try {
+          final result = await _tts.setLanguage(lang);
+          print('🌐 Trying language: $lang, result: $result');
+          if (result == 1) {
+            print('✅ Thai language set: $lang');
+            thaiSet = true;
+            _thaiAvailable = true;
+            break;
+          }
+        } catch (e) {
+          print('⚠️ Failed to set $lang: $e');
+        }
+      }
+
+      if (!thaiSet) {
+        print('❌ Thai language not available!');
+        _thaiAvailable = false;
+        if (mounted && !_isDisposed) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('⚠️ เสียงภาษาไทยไม่พร้อมใช้งาน\nกรุณาติดตั้ง Thai TTS'),
+              backgroundColor: Colors.orange,
+              duration: Duration(seconds: 3),
+            ),
+          );
+          setState(() => _ttsReady = false);
+        }
+        return;
+      }
+
+      // ตั้งค่าเสียง
+      await _tts.setVolume(1.0);
+      print('🔊 Volume: 1.0');
+      
+      await _tts.setSpeechRate(0.45);
+      print('⏱️ Speech Rate: 0.45');
+      
+      await _tts.setPitch(1.0);
+      print('🎵 Pitch: 1.0');
+      
+      await _tts.awaitSpeakCompletion(true);
+      print('⏳ Await speak completion: true');
+
+      // ✅ Set handlers พร้อมเช็ค mounted และ _isDisposed
+      _tts.setStartHandler(() {
+        print('🔊 StoryTelling TTS Started');
+        if (mounted && !_isDisposed) {
+          setState(() => _isSpeaking = true);
+        }
+      });
+
+      _tts.setCompletionHandler(() {
+        print('✅ StoryTelling TTS Completed');
+        if (mounted && !_isDisposed) {
+          setState(() {
+            _isSpeaking = false;
+            _hasSpokenOnce = true;
+          });
+        }
+      });
+
+      _tts.setErrorHandler((msg) {
+        print('❌ StoryTelling TTS Error: $msg');
+        if (mounted && !_isDisposed) {
+          setState(() => _isSpeaking = false);
+        }
+      });
+
+      if (mounted && !_isDisposed) {
+        setState(() => _ttsReady = true);
+      }
+      print('✅ StoryTelling TTS: Ready');
+
+      // รอสั้นๆ แล้วพูดเลย
+      await Future.delayed(const Duration(milliseconds: 800));
+      
+      // Auto speak คำถาม
+      if (mounted && !_isDisposed && !_hasSpokenOnce && _thaiAvailable) {
+        print('🎤 Auto speaking question...');
+        await _speakQuestion();
+      }
+      
+    } catch (e) {
+      print('❌ StoryTelling TTS Init Error: $e');
+      if (mounted && !_isDisposed) {
+        setState(() => _ttsReady = false);
+      }
+    }
+  }
+
+  Future<void> _speakQuestion() async {
+    if (!_ttsReady || !_thaiAvailable || _isDisposed) {
+      print('⚠️ TTS not ready or Thai not available or disposed');
+      return;
+    }
+
+    if (_isSpeaking || _hasSpokenOnce) {
+      return;
+    }
+
+    try {
+      print('🔊 Speaking: $_question');
+      
+      await _tts.setVolume(1.0);
+      await _tts.setSpeechRate(0.45);
+      await _tts.setPitch(1.0);
+      
+      final result = await _tts.speak(_question);
+      
+      print('📢 Speak result: $result');
+      
+      if (result != 1 && mounted && !_isDisposed) {
+        setState(() => _hasSpokenOnce = true);
+      }
+    } catch (e) {
+      print('❌ Speak Error: $e');
+      if (mounted && !_isDisposed) {
+        setState(() => _hasSpokenOnce = true);
+      }
+    }
   }
 
   Future<void> _requestPermission() async {
@@ -54,9 +218,11 @@ class _StoryTellingPageState extends State<StoryTellingPage> {
   }
 
   void _startTimer() {
-    setState(() => _duration = Duration.zero);
+    if (mounted && !_isDisposed) {
+      setState(() => _duration = Duration.zero);
+    }
     _timer = Timer.periodic(const Duration(seconds: 1), (timer) {
-      if (mounted) {
+      if (mounted && !_isDisposed) {
         setState(() {
           _duration = Duration(seconds: _duration.inSeconds + 1);
         });
@@ -65,6 +231,12 @@ class _StoryTellingPageState extends State<StoryTellingPage> {
   }
 
   Future<void> _startRecording() async {
+    if (_isSpeaking) {
+      print('🛑 Stopping TTS before recording...');
+      await _tts.stop();
+      await Future.delayed(const Duration(milliseconds: 300));
+    }
+
     if (!await _audioRecorder.hasPermission()) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -91,10 +263,13 @@ class _StoryTellingPageState extends State<StoryTellingPage> {
       );
 
       _startTimer();
-      setState(() {
-        _isRecording = true;
-        _audioPath = filePath;
-      });
+      
+      if (mounted && !_isDisposed) {
+        setState(() {
+          _isRecording = true;
+          _audioPath = filePath;
+        });
+      }
 
       print('🎙️ เริ่มบันทึกเสียง: $filePath');
 
@@ -129,17 +304,21 @@ class _StoryTellingPageState extends State<StoryTellingPage> {
       final path = await _audioRecorder.stop();
       _timer?.cancel();
 
-      setState(() {
-        _isRecording = false;
-      });
+      if (mounted && !_isDisposed) {
+        setState(() {
+          _isRecording = false;
+        });
+      }
 
       if (path != null && File(path).existsSync()) {
         final file = File(path);
         final fileSize = await file.length();
         
-        setState(() {
-          _audioPath = path;
-        });
+        if (mounted && !_isDisposed) {
+          setState(() {
+            _audioPath = path;
+          });
+        }
 
         print('✅ บันทึกเสียงสำเร็จ: $path (${fileSize} bytes)');
         
@@ -153,9 +332,11 @@ class _StoryTellingPageState extends State<StoryTellingPage> {
           );
         }
       } else {
-        setState(() {
-          _audioPath = null;
-        });
+        if (mounted && !_isDisposed) {
+          setState(() {
+            _audioPath = null;
+          });
+        }
         
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
@@ -168,10 +349,12 @@ class _StoryTellingPageState extends State<StoryTellingPage> {
       }
     } catch (e) {
       print('❌ เกิดข้อผิดพลาดในการหยุดบันทึก: $e');
-      setState(() {
-        _isRecording = false;
-        _audioPath = null;
-      });
+      if (mounted && !_isDisposed) {
+        setState(() {
+          _isRecording = false;
+          _audioPath = null;
+        });
+      }
       _timer?.cancel();
       
       if (mounted) {
@@ -209,9 +392,11 @@ class _StoryTellingPageState extends State<StoryTellingPage> {
       return;
     }
 
-    setState(() {
-      _isProcessing = true;
-    });
+    if (mounted && !_isDisposed) {
+      setState(() {
+        _isProcessing = true;
+      });
+    }
 
     if (!mounted) return;
 
@@ -250,9 +435,11 @@ class _StoryTellingPageState extends State<StoryTellingPage> {
         MaterialPageRoute(
           builder: (context) => ResultPage(
             analysisResult: result,
-            isLastQuestion: true,
+            isLastQuestion: false,
+            isFromStoryTelling: true,
             onNext: () {
-              Navigator.of(context).popUntil((route) => route.isFirst);
+              widget.onComplete?.call();
+              Navigator.of(context).pop();
             },
           ),
         ),
@@ -264,7 +451,7 @@ class _StoryTellingPageState extends State<StoryTellingPage> {
       
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('ไม่สามารถเชื่อมต่อกับเซิร์ฟเวอร์ได้ กรุณาตรวจสอบการเชื่อมต่ออินเทอร์เน็ต'),
+          content: Text('ไม่สามารถเชื่อมต่อกับเซิร์ฟเวอร์ได้'),
           backgroundColor: Colors.red,
           duration: Duration(seconds: 4),
         ),
@@ -290,7 +477,7 @@ class _StoryTellingPageState extends State<StoryTellingPage> {
         ),
       );
     } finally {
-      if (mounted) {
+      if (mounted && !_isDisposed) {
         setState(() {
           _isProcessing = false;
         });
@@ -307,171 +494,137 @@ class _StoryTellingPageState extends State<StoryTellingPage> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: const Color(0xFFF5F5DC),
-      appBar: AppBar(
-        backgroundColor: const Color(0xFF1B7070),
-        foregroundColor: Colors.white,
-        title: const Text('บันทึกเสียง'),
-        elevation: 0,
-      ),
-      body: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 16.0),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              const Text(
-                'วันนี้มีเรื่องอะไรอยากเล่าไหมคะ?',
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                  fontSize: 24,
-                  fontWeight: FontWeight.bold,
-                  color: Color(0xFF333333),
-                ),
-              ),
-              const SizedBox(height: 48),
-              
-              Container(
-                padding: const EdgeInsets.all(20),
-                decoration: BoxDecoration(
-                  color: Colors.white.withOpacity(0.9),
-                  borderRadius: BorderRadius.circular(16),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black.withOpacity(0.1),
-                      blurRadius: 8,
-                      offset: const Offset(0, 2),
-                    ),
-                  ],
-                ),
-                child: Column(
-                  children: [
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Icon(
-                          _isRecording ? Icons.radio_button_checked : Icons.mic,
-                          color: _isRecording ? Colors.red : const Color(0xFF1B7070),
-                          size: 24,
-                        ),
-                        const SizedBox(width: 8),
-                        Text(
-                          _isRecording ? 'กำลังบันทึก...' : 'พร้อมบันทึกเสียง',
-                          style: TextStyle(
-                            fontSize: 18,
-                            fontWeight: FontWeight.w500,
-                            color: _isRecording ? Colors.red : const Color(0xFF1B7070),
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 12),
-                    Text(
-                      _formatDuration(_duration),
-                      style: const TextStyle(
-                        fontSize: 48,
-                        fontWeight: FontWeight.w300,
-                        color: Colors.black54,
-                      ),
-                    ),
-                    
-                    if (!_isRecording && _audioPath != null)
+    return WillPopScope(
+      onWillPop: () async {
+        print('⬅️ StoryTelling: Back button pressed');
+        if (_isSpeaking) {
+          await _tts.stop();
+          await Future.delayed(const Duration(milliseconds: 200));
+        }
+        return true;
+      },
+      child: Scaffold(
+        backgroundColor: const Color(0xFFF5F5DC),
+        appBar: AppBar(
+          backgroundColor: const Color(0xFF1B7070),
+          foregroundColor: Colors.white,
+          title: const Text('บันทึกเสียง'),
+          elevation: 0,
+        ),
+        body: SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 16.0),
+            child: _isProcessing
+                ? const Center(child: CircularProgressIndicator())
+                : Column(
+                    children: [
+                      // Question Card
                       Container(
-                        margin: const EdgeInsets.only(top: 12),
-                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                        padding: const EdgeInsets.all(20),
                         decoration: BoxDecoration(
-                          color: Colors.green.withOpacity(0.1),
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                        child: const Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Icon(Icons.check_circle, color: Colors.green, size: 16),
-                            SizedBox(width: 4),
-                            Text(
-                              'พร้อมวิเคราะห์',
-                              style: TextStyle(color: Colors.green, fontSize: 14),
+                          color: Colors.white,
+                          borderRadius: BorderRadius.circular(16),
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.black.withOpacity(0.05),
+                              blurRadius: 10,
+                              offset: const Offset(0, 4),
                             ),
                           ],
                         ),
+                        child: Column(
+                          children: [
+                            Text(
+                              _question,
+                              style: const TextStyle(
+                                fontSize: 22,
+                                fontWeight: FontWeight.w500,
+                                height: 1.4,
+                              ),
+                              textAlign: TextAlign.center,
+                            ),
+                            
+                            // Status indicator
+                            if (_isSpeaking)
+                              Padding(
+                                padding: const EdgeInsets.only(top: 16),
+                                child: Row(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  children: [
+                                    const SizedBox(
+                                      width: 12,
+                                      height: 12,
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: 2,
+                                        color: Color(0xFF1B7070),
+                                      ),
+                                    ),
+                                    const SizedBox(width: 8),
+                                    const Text(
+                                      'กำลังอ่านคำถาม...',
+                                      style: TextStyle(
+                                        fontSize: 13,
+                                        color: Color(0xFF1B7070),
+                                        fontWeight: FontWeight.w500,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                          ],
+                        ),
                       ),
-                  ],
-                ),
-              ),
-              
-              const Spacer(),
-              
-              if (_isProcessing)
-                const Center(
-                  child: Column(
-                    children: [
-                      CircularProgressIndicator(color: Color(0xFF1B7070)),
-                      SizedBox(height: 16),
-                      Text('กำลังประมวลผล...'),
+                      
+                      const SizedBox(height: 24),
+                      
+                      // ปุ่มอ่านอีกครั้ง (แสดงเฉพาะเมื่ออ่านเสร็จแล้ว)
+                      if (_ttsReady && _thaiAvailable && _hasSpokenOnce && !_isSpeaking)
+                        ElevatedButton.icon(
+                          onPressed: () async {
+                            if (mounted && !_isDisposed) {
+                              setState(() => _hasSpokenOnce = false);
+                            }
+                            await _speakQuestion();
+                          },
+                          icon: const Icon(Icons.replay, size: 24),
+                          label: const Text(
+                            'อ่านคำถามอีกครั้ง',
+                            style: TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: const Color(0xFF1B7070),
+                            foregroundColor: Colors.white,
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 24,
+                              vertical: 14,
+                            ),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            elevation: 2,
+                          ),
+                        ),
+                      
+                      const Spacer(),
+                      
+                      // Voice Recorder Widget
+                      VoiceRecorderWidget(
+                        onRecordingComplete: (path) async {
+                          if (mounted && !_isDisposed) {
+                            setState(() {
+                              _audioPath = path;
+                            });
+                          }
+                          await _analyzeAndNavigate();
+                        },
+                      ),
+                      
+                      const Spacer(),
                     ],
                   ),
-                )
-              else
-                Column(
-                  children: [
-                    SizedBox(
-                      width: double.infinity,
-                      height: 56,
-                      child: ElevatedButton.icon(
-                        onPressed: _isRecording ? _stopRecording : _startRecording,
-                        icon: Icon(
-                          _isRecording ? Icons.stop : Icons.mic,
-                          size: 24,
-                        ),
-                        label: Text(
-                          _isRecording ? 'หยุดบันทึก' : 'เริ่มบันทึก',
-                          style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
-                        ),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: _isRecording 
-                              ? Colors.red.shade400 
-                              : const Color(0xFF1B7070),
-                          foregroundColor: Colors.white,
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                          elevation: _isRecording ? 4 : 2,
-                        ),
-                      ),
-                    ),
-                    
-                    const SizedBox(height: 16),
-                    
-                    SizedBox(
-                      width: double.infinity,
-                      height: 56,
-                      child: ElevatedButton.icon(
-                        onPressed: (_isRecording || _audioPath == null) 
-                            ? null 
-                            : _analyzeAndNavigate,
-                        icon: const Icon(Icons.psychology, size: 24),
-                        label: const Text(
-                          'วิเคราะห์อารมณ์',
-                          style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
-                        ),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: const Color(0xFF1B7070).withOpacity(0.8),
-                          foregroundColor: Colors.white,
-                          disabledBackgroundColor: Colors.grey.shade300,
-                          disabledForegroundColor: Colors.grey.shade600,
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              
-              const SizedBox(height: 32),
-            ],
           ),
         ),
       ),

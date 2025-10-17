@@ -38,15 +38,15 @@ class SessionSummaryPage extends StatelessWidget {
                 color: Colors.amber,
               ),
               const SizedBox(height: 16),
-              const Text(
-                'เสร็จสิ้นการสนทนา!',
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                  fontSize: 28,
-                  fontWeight: FontWeight.bold,
-                  color: Colors.black87,
-                ),
-              ),
+              // const Text(
+              //   'เสร็จสิ้นการสนทนา!',
+              //   textAlign: TextAlign.center,
+              //   style: TextStyle(
+              //     fontSize: 28,
+              //     fontWeight: FontWeight.bold,
+              //     color: Colors.black87,
+              //   ),
+              // ),
               const SizedBox(height: 32),
 
               // Summary Card
@@ -73,7 +73,7 @@ class SessionSummaryPage extends StatelessWidget {
                       ),
                       const Divider(height: 24),
                       _buildStatRow(
-                        '🎯 ความมั่นใจเฉลี่ย',
+                        'ความมั่นใจเฉลี่ย',
                         '${(avgConfidence * 100).toStringAsFixed(1)}%',
                       ),
                     ],
