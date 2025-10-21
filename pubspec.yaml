@@ -39,6 +39,8 @@ dependencies:
   wav: ^1.2.0
   intl: ^0.20.2
 
+  just_audio: ^0.9.36
+
   shared_preferences: ^2.2.2 
   sqflite: ^2.3.0
   path_provider: ^2.1.2
@@ -80,6 +82,8 @@ flutter:
      - assets/images/logo.jpg
      - assets/images/correct.png
      - assets/images/incorrect.png
+     - assets/audio/
+     - assets/audio/comfort/
 
   # An image asset can refer to one or more resolution-specific "variants", see
   # https://flutter.dev/to/resolutionfl-aware-images

@@ -4,13 +4,14 @@ import 'package:flutter/material.dart';
 import 'package:record/record.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:permission_handler/permission_handler.dart';
-import 'package:flutter_tts/flutter_tts.dart';
+import 'package:just_audio/just_audio.dart';
 import 'package:fungjai_app_new/services/prediction_result.dart';
 import 'package:fungjai_app_new/services/emotion_api_service.dart';
 import 'package:fungjai_app_new/widgets/voice_recorder_widget.dart';
 
 class QuestionPage extends StatefulWidget {
   final String question;
+  final String? audioPath;
   final int questionNumber;
   final int totalQuestions;
   final Function(PredictionResult) onAnswered;
@@ -18,6 +19,7 @@ class QuestionPage extends StatefulWidget {
   const QuestionPage({
     super.key,
     required this.question,
+    this.audioPath,
     required this.questionNumber,
     required this.totalQuestions,
     required this.onAnswered,
@@ -30,15 +32,13 @@ class QuestionPage extends StatefulWidget {
 class _QuestionPageState extends State<QuestionPage> {
   final AudioRecorder _audioRecorder = AudioRecorder();
   final EmotionApiService _apiService = EmotionApiService();
-  final FlutterTts _tts = FlutterTts();
+  late final AudioPlayer _audioPlayer;
   
   bool _isRecording = false;
   bool _isProcessing = false;
-  bool _isSpeaking = false;
-  bool _ttsReady = false;
-  bool _hasSpokenOnce = false;
-  bool _thaiAvailable = false;
-  bool _isDisposed = false; // ✅ เพิ่ม flag ป้องกัน setState after dispose
+  bool _isPlayingAudio = false;
+  bool _hasPlayedOnce = false;
+  bool _isDisposed = false;
   String? _audioPath;
   Timer? _timer;
   Duration _duration = Duration.zero;
@@ -46,159 +46,121 @@ class _QuestionPageState extends State<QuestionPage> {
   @override
   void initState() {
     super.initState();
+    _audioPlayer = AudioPlayer();
     print('🎤 QuestionPage: Initialized for question: ${widget.question}');
-    _initTts();
+    print('🔊 Audio path: ${widget.audioPath}');
     _requestPermission();
+    _setupAudioPlayer();
   }
 
   @override
   void dispose() {
     print('🧹 QuestionPage: Disposing...');
-    _isDisposed = true; // ✅ เซ็ต flag
+    _isDisposed = true;
     
     _timer?.cancel();
-    _tts.stop();
-    _tts.setStartHandler(() {});
-    _tts.setCompletionHandler(() {});
-    _tts.setErrorHandler((msg) {});
+    _audioPlayer.dispose();
     _audioRecorder.dispose();
     
     print('✅ QuestionPage: Disposed successfully');
     super.dispose();
   }
 
-  Future<void> _initTts() async {
+  void _setupAudioPlayer() {
+    // ✅ ฟัง state changes
+    _audioPlayer.playerStateStream.listen((state) {
+      if (!mounted || _isDisposed) return;
+      
+      print('🎵 Question audio: playing=${state.playing}, processing=${state.processingState}');
+      
+      // ✅ เช็ค completed ก่อน
+      if (state.processingState == ProcessingState.completed) {
+        setState(() {
+          _isPlayingAudio = false;
+          _hasPlayedOnce = true;
+        });
+        print('✅ Question audio completed - button changed to replay');
+      } else {
+        setState(() {
+          _isPlayingAudio = state.playing;
+        });
+      }
+    });
+
+    _audioPlayer.durationStream.listen((duration) {
+      if (duration != null) {
+        print('⏱️ Audio duration: ${duration.inSeconds} seconds');
+      }
+    });
+
+    _audioPlayer.positionStream.listen((position) {
+      if (position.inSeconds > 0 && position.inSeconds % 5 == 0) {
+        print('📍 Audio position: ${position.inSeconds}s');
+      }
+    });
+  }
+
+  Future<void> _playQuestionAudio() async {
+    if (widget.audioPath == null || _isDisposed) {
+      print('❌ No audio path or disposed');
+      return;
+    }
+
     try {
-      print('🔊 Question TTS: Starting initialization...');
-
-      // รอให้ TTS Engine พร้อม
-      await Future.delayed(const Duration(milliseconds: 500));
-
-      // Android Settings
-      print('🤖 Configuring TTS...');
-      await _tts.setVolume(1.0);
-      await _tts.setSpeechRate(0.45);
-      await _tts.setPitch(1.0);
-
-      // เช็คภาษาที่มี
-      final languages = await _tts.getLanguages;
-      print('📢 Available languages: $languages');
-
-      // ลองตั้งภาษาไทย
-      bool thaiSet = false;
-      for (String lang in ['th-TH', 'th']) {
-        try {
-          final result = await _tts.setLanguage(lang);
-          print('🌐 Trying language: $lang, result: $result');
-          if (result == 1) {
-            print('✅ Thai language set: $lang');
-            thaiSet = true;
-            _thaiAvailable = true;
-            break;
-          }
-        } catch (e) {
-          print('⚠️ Failed to set $lang: $e');
-        }
-      }
-
-      if (!thaiSet) {
-        print('❌ Thai language not available!');
-        _thaiAvailable = false;
-        if (mounted && !_isDisposed) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('⚠️ เสียงภาษาไทยไม่พร้อมใช้งาน\nกรุณาติดตั้ง Thai TTS'),
-              backgroundColor: Colors.orange,
-              duration: Duration(seconds: 3),
-            ),
-          );
-          setState(() => _ttsReady = false);
-        }
-        return;
-      }
-
-      // ตั้งค่าเสียง
-      await _tts.setVolume(1.0);
-      await _tts.setSpeechRate(0.45);
-      await _tts.setPitch(1.0);
-      await _tts.awaitSpeakCompletion(true);
-
-      // ✅ Set handlers พร้อมเช็ค mounted และ _isDisposed
-      _tts.setStartHandler(() {
-        print('🔊 Question TTS Started');
-        if (mounted && !_isDisposed) {
-          setState(() => _isSpeaking = true);
-        }
-      });
-
-      _tts.setCompletionHandler(() {
-        print('✅ Question TTS Completed');
-        if (mounted && !_isDisposed) {
-          setState(() {
-            _isSpeaking = false;
-            _hasSpokenOnce = true;
-          });
-        }
-      });
-
-      _tts.setErrorHandler((msg) {
-        print('❌ Question TTS Error: $msg');
-        if (mounted && !_isDisposed) {
-          setState(() => _isSpeaking = false);
-        }
-      });
-
-      if (mounted && !_isDisposed) {
-        setState(() => _ttsReady = true);
-      }
-      print('✅ Question TTS: Ready');
-
-      // รอสั้นๆ แล้วพูดเลย
-      await Future.delayed(const Duration(milliseconds: 800));
+      print('🔊 Starting audio playback...');
+      print('   Path: ${widget.audioPath}');
       
-      // Auto speak คำถาม
-      if (mounted && !_isDisposed && !_hasSpokenOnce && _thaiAvailable) {
-        print('🎤 Auto speaking question...');
-        await _speakQuestion();
+      await _audioPlayer.stop();
+      
+      await _audioPlayer.setAsset(widget.audioPath!);
+      
+      await _audioPlayer.setVolume(1.0);
+      
+      print('   Volume set to MAX');
+      
+      await _audioPlayer.play();
+      
+      if (mounted && !_isDisposed) {
+        setState(() {
+          _isPlayingAudio = true;
+          _hasPlayedOnce = true;
+        });
       }
       
-    } catch (e) {
-      print('❌ Question TTS Init Error: $e');
+      print('✅ Audio playback started successfully');
+      
+    } catch (e, stackTrace) {
+      print('❌ Audio play error: $e');
+      print('   Stack trace: $stackTrace');
+      
       if (mounted && !_isDisposed) {
-        setState(() => _ttsReady = false);
+        setState(() {
+          _isPlayingAudio = false;
+        });
+        
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('ไม่สามารถเล่นเสียงได้: ${e.toString()}'),
+            backgroundColor: Colors.orange,
+            duration: const Duration(seconds: 3),
+          ),
+        );
       }
     }
   }
 
-  Future<void> _speakQuestion() async {
-    if (!_ttsReady || !_thaiAvailable || _isDisposed) {
-      print('⚠️ TTS not ready or Thai not available or disposed');
-      return;
-    }
-
-    if (_isSpeaking || _hasSpokenOnce) {
-      return;
-    }
-
+  Future<void> _stopQuestionAudio() async {
     try {
-      print('🔊 Speaking: ${widget.question}');
-      
-      await _tts.setVolume(1.0);
-      await _tts.setSpeechRate(0.45);
-      await _tts.setPitch(1.0);
-      
-      final result = await _tts.speak(widget.question);
-      
-      print('📢 Speak result: $result');
-      
-      if (result != 1 && mounted && !_isDisposed) {
-        setState(() => _hasSpokenOnce = true);
-      }
-    } catch (e) {
-      print('❌ Speak Error: $e');
+      print('🛑 Stopping audio...');
+      await _audioPlayer.stop();
       if (mounted && !_isDisposed) {
-        setState(() => _hasSpokenOnce = true);
+        setState(() {
+          _isPlayingAudio = false;
+        });
       }
+      print('✅ Audio stopped');
+    } catch (e) {
+      print('❌ Audio stop error: $e');
     }
   }
 
@@ -276,10 +238,8 @@ class _QuestionPageState extends State<QuestionPage> {
   Widget build(BuildContext context) {
     return WillPopScope(
       onWillPop: () async {
-        if (_isSpeaking) {
-          await _tts.stop();
-          await Future.delayed(const Duration(milliseconds: 200));
-        }
+        await _audioPlayer.stop();
+        await Future.delayed(const Duration(milliseconds: 200));
         return true;
       },
       child: Scaffold(
@@ -297,7 +257,6 @@ class _QuestionPageState extends State<QuestionPage> {
                 ? const Center(child: CircularProgressIndicator())
                 : Column(
                     children: [
-                      // Progress indicator
                       LinearProgressIndicator(
                         value: widget.questionNumber / widget.totalQuestions,
                         backgroundColor: Colors.grey.shade300,
@@ -309,9 +268,8 @@ class _QuestionPageState extends State<QuestionPage> {
                       
                       const SizedBox(height: 32),
                       
-                      // Question Card
                       Container(
-                        padding: const EdgeInsets.all(20),
+                        padding: const EdgeInsets.all(24),
                         decoration: BoxDecoration(
                           color: Colors.white,
                           borderRadius: BorderRadius.circular(16),
@@ -325,83 +283,138 @@ class _QuestionPageState extends State<QuestionPage> {
                         ),
                         child: Column(
                           children: [
+                            if (widget.audioPath != null)
+                              Container(
+                                padding: const EdgeInsets.all(12),
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFF1B7070).withOpacity(0.1),
+                                  shape: BoxShape.circle,
+                                ),
+                                child: Icon(
+                                  _isPlayingAudio ? Icons.volume_up : Icons.headphones,
+                                  size: 32,
+                                  color: const Color(0xFF1B7070),
+                                ),
+                              ),
+                            
+                            if (widget.audioPath != null)
+                              const SizedBox(height: 16),
+                            
                             Text(
                               widget.question,
                               style: const TextStyle(
                                 fontSize: 22,
                                 fontWeight: FontWeight.w500,
-                                height: 1.4,
+                                height: 1.5,
+                                color: Color(0xFF2C2C2C),
                               ),
                               textAlign: TextAlign.center,
                             ),
-                            
-                            // Status indicator
-                            if (_isSpeaking)
-                              Padding(
-                                padding: const EdgeInsets.only(top: 16),
-                                child: Row(
-                                  mainAxisAlignment: MainAxisAlignment.center,
-                                  children: [
-                                    const SizedBox(
-                                      width: 12,
-                                      height: 12,
-                                      child: CircularProgressIndicator(
-                                        strokeWidth: 2,
-                                        color: Color(0xFF1B7070),
-                                      ),
-                                    ),
-                                    const SizedBox(width: 8),
-                                    const Text(
-                                      'กำลังอ่านคำถาม...',
-                                      style: TextStyle(
-                                        fontSize: 13,
-                                        color: Color(0xFF1B7070),
-                                        fontWeight: FontWeight.w500,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
                           ],
                         ),
                       ),
                       
                       const SizedBox(height: 24),
                       
-                      // ปุ่มอ่านอีกครั้ง (แสดงเฉพาะเมื่ออ่านเสร็จแล้ว)
-                      if (_ttsReady && _thaiAvailable && _hasSpokenOnce && !_isSpeaking)
+                      // ✅ ปุ่มเล่น/หยุดเสียง
+                      if (widget.audioPath != null)
                         ElevatedButton.icon(
-                          onPressed: () async {
-                            if (mounted && !_isDisposed) {
-                              setState(() => _hasSpokenOnce = false);
-                            }
-                            await _speakQuestion();
-                          },
-                          icon: const Icon(Icons.replay, size: 24),
-                          label: const Text(
-                            'อ่านคำถามอีกครั้ง',
-                            style: TextStyle(
-                              fontSize: 16,
+                          onPressed: _isPlayingAudio ? _stopQuestionAudio : _playQuestionAudio,
+                          icon: Icon(
+                            _isPlayingAudio ? Icons.stop : (_hasPlayedOnce ? Icons.replay : Icons.play_arrow),
+                            size: 28,
+                          ),
+                          label: Text(
+                            _isPlayingAudio ? 'หยุดเสียง' : (_hasPlayedOnce ? 'ฟังอีกครั้ง' : 'ฟังคำถาม'),
+                            style: const TextStyle(
+                              fontSize: 18,
                               fontWeight: FontWeight.w600,
                             ),
                           ),
                           style: ElevatedButton.styleFrom(
-                            backgroundColor: const Color(0xFF1B7070),
+                            backgroundColor: _isPlayingAudio 
+                                ? Colors.red.shade600 
+                                : const Color(0xFF1B7070),
                             foregroundColor: Colors.white,
                             padding: const EdgeInsets.symmetric(
-                              horizontal: 24,
-                              vertical: 14,
+                              horizontal: 32,
+                              vertical: 16,
                             ),
                             shape: RoundedRectangleBorder(
                               borderRadius: BorderRadius.circular(12),
                             ),
-                            elevation: 2,
+                            elevation: 3,
+                          ),
+                        ),
+                      
+                      // ✅ แสดงสถานะเมื่อกำลังเล่น (ไม่บัง UI)
+                      if (_isPlayingAudio && widget.audioPath != null)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 12),
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              SizedBox(
+                                width: 16,
+                                height: 16,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  valueColor: AlwaysStoppedAnimation<Color>(
+                                    const Color(0xFF1B7070),
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              const Text(
+                                'กำลังเล่นเสียง...',
+                                style: TextStyle(
+                                  fontSize: 14,
+                                  color: Color(0xFF1B7070),
+                                  fontWeight: FontWeight.w500,
+                                ),
+                              ),
+                            ],
                           ),
                         ),
                       
                       const Spacer(),
                       
-                      // Voice Recorder Widget
+                      Container(
+                        padding: const EdgeInsets.all(16),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFF1B7070).withOpacity(0.1),
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(
+                            color: const Color(0xFF1B7070).withOpacity(0.3),
+                            width: 1,
+                          ),
+                        ),
+                        child: Row(
+                          children: [
+                            const Icon(
+                              Icons.info_outline,
+                              color: Color(0xFF1B7070),
+                              size: 24,
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: Text(
+                                widget.audioPath != null
+                                    ? 'กดปุ่มด้านบนเพื่อฟังคำถาม\nแล้วกดไมค์เพื่อตอบคำถาม'
+                                    : 'กดไมค์เพื่อบันทึกเสียงตอบคำถาม',
+                                style: TextStyle(
+                                  fontSize: 14,
+                                  color: const Color(0xFF1B7070),
+                                  height: 1.4,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      
+                      const SizedBox(height: 24),
+                      
                       VoiceRecorderWidget(
                         onRecordingComplete: _handleRecordingComplete,
                       ),

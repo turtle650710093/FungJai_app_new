@@ -15,7 +15,7 @@ class QuestionSetPage extends StatefulWidget {
 }
 
 class _QuestionSetPageState extends State<QuestionSetPage> {
-  List<String> _questions = [];
+  List<Map<String, dynamic>> _questionsWithAudio = []; // ✅ เปลี่ยนจาก List<String>
   bool _isLoading = true;
   String _errorMessage = '';
   int _currentQuestionIndex = 0;
@@ -38,28 +38,25 @@ class _QuestionSetPageState extends State<QuestionSetPage> {
       final db = QuestionDatabaseHelper();
 
       print('🎯 QuestionSetPage: Fetching random question set...');
-      final questionSet = await db.getRandomQuestionSet();
+      final questionSet = await db.getRandomQuestionSetWithAudio(); // ✅ ใช้ method ใหม่
 
       print('✅ QuestionSetPage: Got ${questionSet.length} questions');
-      for (var q in questionSet) {
-        print('   - $q');
-      }
 
       if (mounted) {
         setState(() {
-          _questions = questionSet;
+          _questionsWithAudio = questionSet; // ✅ เปลี่ยนชื่อตัวแปร
           _isLoading = false;
-          if (_questions.isEmpty) {
+          if (_questionsWithAudio.isEmpty) {
             _errorMessage = 'ไม่พบชุดคำถามในระบบ กรุณาลองใหม่อีกครั้ง';
           }
         });
 
-        if (_questions.isNotEmpty) {
+        if (_questionsWithAudio.isNotEmpty) {
           // สร้าง session ใหม่
           _currentSessionId = await _emotionDb.createSession(
-            questionSetId: 1,
-            questionSetTitle: 'ชุดคำถามทั่วไป',
-            totalQuestions: _questions.length,
+            questionSetId: questionSet.first['question_set_id'] as int, // ✅ ใช้ ID จริง
+            questionSetTitle: 'ชุดคำถามที่ ${questionSet.first['question_set_id']}', // ✅ ใช้ ID แทน title
+            totalQuestions: _questionsWithAudio.length,
           );
           print('📝 Created session ID: $_currentSessionId');
 
@@ -81,14 +78,17 @@ class _QuestionSetPageState extends State<QuestionSetPage> {
   }
 
   void _askQuestion(int index) {
-    print('🎤 QuestionSetPage: Asking question $index: ${_questions[index]}');
+    final questionData = _questionsWithAudio[index]; // ✅ ใช้ _questionsWithAudio
+    
+    print('🎤 QuestionSetPage: Asking question $index: ${questionData['question_text']}');
 
     Navigator.of(context).push(
       MaterialPageRoute(
         builder: (context) => QuestionPage(
-          question: _questions[index],
+          question: questionData['question_text'] as String,
+          audioPath: questionData['audio_path'] as String?, // ✅ ส่ง audio path
           questionNumber: index + 1,
-          totalQuestions: _questions.length,
+          totalQuestions: _questionsWithAudio.length, // ✅ ใช้ _questionsWithAudio
           onAnswered: (result) {
             print('✅ QuestionSetPage: Got answer for question $index');
             _handleAnalysisComplete(result);
@@ -108,9 +108,11 @@ class _QuestionSetPageState extends State<QuestionSetPage> {
     // บันทึกลง emotion database
     if (_currentSessionId != null) {
       try {
+        final currentQuestion = _questionsWithAudio[_currentQuestionIndex]; // ✅ ใช้ _questionsWithAudio
+        
         await _emotionDb.saveEmotionRecord(
           sessionId: _currentSessionId!,
-          questionText: _questions[_currentQuestionIndex],
+          questionText: currentQuestion['question_text'] as String, // ✅ ใช้ข้อมูลจาก map
           questionOrder: _currentQuestionIndex,
           emotion: result.emotion,
           confidence: result.confidence,
@@ -134,7 +136,7 @@ class _QuestionSetPageState extends State<QuestionSetPage> {
       MaterialPageRoute(
         builder: (context) => ResultPage(
           analysisResult: result,
-          isLastQuestion: _currentQuestionIndex == _questions.length - 1,
+          isLastQuestion: _currentQuestionIndex == _questionsWithAudio.length - 1, // ✅ ใช้ _questionsWithAudio
           onNext: () {
             Navigator.of(context).pop();
             _goToNextStep();
@@ -146,10 +148,10 @@ class _QuestionSetPageState extends State<QuestionSetPage> {
 
   Future<void> _goToNextStep() async {
     print(
-      '➡️ QuestionSetPage: Going to next step. Current: $_currentQuestionIndex, Total: ${_questions.length}',
+      '➡️ QuestionSetPage: Going to next step. Current: $_currentQuestionIndex, Total: ${_questionsWithAudio.length}', // ✅ ใช้ _questionsWithAudio
     );
 
-    if (_currentQuestionIndex < _questions.length - 1) {
+    if (_currentQuestionIndex < _questionsWithAudio.length - 1) { // ✅ ใช้ _questionsWithAudio
       setState(() {
         _currentQuestionIndex++;
       });
@@ -182,7 +184,7 @@ class _QuestionSetPageState extends State<QuestionSetPage> {
                 onNextSet: () {
                   Navigator.of(context).pop();
                   setState(() {
-                    _questions = [];
+                    _questionsWithAudio = []; // ✅ ใช้ _questionsWithAudio
                     _isLoading = true;
                     _errorMessage = '';
                     _currentQuestionIndex = 0;

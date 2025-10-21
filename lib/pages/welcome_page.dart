@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:fungjai_app_new/pages/question_set_page.dart';
 import 'package:fungjai_app_new/pages/storytelling_recording_page.dart';
 import 'package:fungjai_app_new/services/daily_check_helper.dart';
 import 'package:fungjai_app_new/widgets/app_drawer.dart';
+import 'package:just_audio/just_audio.dart';
 
 class WelcomePage extends StatefulWidget {
   const WelcomePage({super.key});
@@ -12,7 +14,73 @@ class WelcomePage extends StatefulWidget {
 }
 
 class _WelcomePageState extends State<WelcomePage> {
+  late final AudioPlayer _audioPlayer;
+  bool _isPlaying = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _audioPlayer = AudioPlayer();
+    _setupAudioPlayer();
+  }
+
+  @override
+  void dispose() {
+    _audioPlayer.dispose();
+    super.dispose();
+  }
+
+  void _setupAudioPlayer() {
+    // ✅ ฟัง state changes
+    _audioPlayer.playerStateStream.listen((state) {
+      if (!mounted) return;
+      
+      print('🎵 Welcome state: playing=${state.playing}, processing=${state.processingState}');
+      
+      // ✅ อัปเดต state ตาม processing state
+      if (state.processingState == ProcessingState.completed) {
+        setState(() {
+          _isPlaying = false;
+        });
+        print('✅ Welcome audio completed - button reset');
+      } else {
+        setState(() {
+          _isPlaying = state.playing;
+        });
+      }
+    });
+  }
+
+  Future<void> _playWelcomeAudio() async {
+    if (_isPlaying) return;
+
+    try {
+      await _audioPlayer.stop();
+      await _audioPlayer.setAsset('assets/audio/welcome.m4a');
+      await _audioPlayer.setVolume(1.0);
+      await _audioPlayer.play();
+      
+      setState(() => _isPlaying = true);
+      
+    } catch (e) {
+      print('❌ Error playing audio: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('ไม่สามารถเล่นเสียงได้: $e'),
+            backgroundColor: Colors.orange,
+          ),
+        );
+      }
+    }
+  }
+
   Future<void> _onStoryTellingSelected() async {
+    if (_isPlaying) {
+      await _audioPlayer.stop();
+      setState(() => _isPlaying = false);
+    }
+
     await DailyCheckHelper.markAsUsedToday();
     if (mounted) {
       Navigator.push(
@@ -25,6 +93,11 @@ class _WelcomePageState extends State<WelcomePage> {
   }
 
   Future<void> _onQuestionSetSelected() async {
+    if (_isPlaying) {
+      await _audioPlayer.stop();
+      setState(() => _isPlaying = false);
+    }
+
     await DailyCheckHelper.markAsUsedToday();
     if (mounted) {
       Navigator.push(
@@ -80,7 +153,6 @@ class _WelcomePageState extends State<WelcomePage> {
             children: [
               const Spacer(flex: 1),
               
-              // ไอคอนตามเวลา
               Icon(
                 greetingIcon,
                 size: 80,
@@ -88,7 +160,6 @@ class _WelcomePageState extends State<WelcomePage> {
               ),
               const SizedBox(height: 24),
               
-              // คำทักทาย
               Text(
                 greeting,
                 textAlign: TextAlign.center,
@@ -100,7 +171,6 @@ class _WelcomePageState extends State<WelcomePage> {
               ),
               const SizedBox(height: 16),
               
-              // คำถาม
               Text(
                 'วันนี้มีอะไรอยากเล่าให้ฟังไหมคะ?',
                 textAlign: TextAlign.center,
@@ -111,13 +181,54 @@ class _WelcomePageState extends State<WelcomePage> {
                 ),
               ),
               
+              const SizedBox(height: 24),
+              
+              ElevatedButton.icon(
+                onPressed: _isPlaying ? null : _playWelcomeAudio,
+                icon: Icon(
+                  _isPlaying ? Icons.volume_up : Icons.play_arrow,
+                  size: 28,
+                ),
+                label: Text(
+                  _isPlaying ? 'กำลังเล่นเสียง...' : 'ฟังข้อความ',
+                  style: const TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFF2D5F5F),
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 32,
+                    vertical: 16,
+                  ),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  elevation: 3,
+                ),
+              ),
+              
+              if (_isPlaying)
+                Padding(
+                  padding: const EdgeInsets.only(top: 12),
+                  child: SizedBox(
+                    width: 200,
+                    child: LinearProgressIndicator(
+                      backgroundColor: Colors.grey.shade300,
+                      valueColor: AlwaysStoppedAnimation<Color>(
+                        const Color(0xFF2D5F5F),
+                      ),
+                    ),
+                  ),
+                ),
+              
               const Spacer(flex: 2),
               
-              // ปุ่มกลม 2 ปุ่ม
               Row(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  // ปุ่ม "อยากเล่า"
                   Column(
                     children: [
                       const Text(
@@ -157,7 +268,6 @@ class _WelcomePageState extends State<WelcomePage> {
                   
                   const SizedBox(width: 60),
                   
-                  // ปุ่ม "ไม่อยากเล่า"
                   Column(
                     children: [
                       const Text(
@@ -206,7 +316,6 @@ class _WelcomePageState extends State<WelcomePage> {
   }
 }
 
-// Flow class สำหรับเล่าเรื่อง → ชุดคำถาม
 class StoryTellingWithQuestionFlow extends StatefulWidget {
   const StoryTellingWithQuestionFlow({super.key});
 

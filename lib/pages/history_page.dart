@@ -36,48 +36,55 @@ class _HistoryPageState extends State<HistoryPage> {
     setState(() => _isLoading = false);
   }
 
+  /// ✅ แก้ไข: ดึงเฉพาะ session ที่ทำครบ (status = 'completed' และ completed_questions >= 5)
   Future<void> _loadDailyData() async {
-    final records = await _emotionDb.getAllEmotionRecords();
-    Map<int, List<Map<String, dynamic>>> sessions = {};
+    final db = await _emotionDb.database;
     
-    for (var record in records) {
-      final sessionId = record['session_id'] as int?;
-      if (sessionId != null) {
-        sessions.putIfAbsent(sessionId, () => []);
-        sessions[sessionId]!.add(record);
-      }
-    }
-
-    List<Map<String, dynamic>> dailyData = [];
-    sessions.forEach((sessionId, records) {
-      if (records.isNotEmpty) {
-        int positiveCount = records.where((r) {
-          final emotion = (r['emotion'] as String?)?.toLowerCase();
-          return emotion == 'happy' || emotion == 'neutral';
-        }).length;
-
-        double positiveRatio = positiveCount / records.length;
-        final timestamp = records.first['timestamp'] as String?;
-        if (timestamp != null) {
-          dailyData.add({
-            'session_id': sessionId,
-            'timestamp': timestamp,
-            'positive_ratio': positiveRatio,
-            'total_questions': records.length,
-          });
-        }
-      }
-    });
-
-    dailyData.sort((a, b) => 
-      (b['timestamp'] as String).compareTo(a['timestamp'] as String)
+    // ดึง sessions ที่ status = 'completed' และทำครบ 5 คำถาม
+    final sessions = await db.query(
+      'sessions',
+      where: 'status = ? AND completed_questions >= ?',
+      whereArgs: ['completed', 5],
+      orderBy: 'start_time DESC',
+      limit: 10,
     );
 
+    print('📊 Found ${sessions.length} completed sessions (5+ questions)');
+
+    List<Map<String, dynamic>> dailyData = [];
+
+    for (var session in sessions) {
+      final sessionId = session['id'] as int;
+      
+      // ดึง emotion records ของ session นี้
+      final records = await _emotionDb.getSessionRecords(sessionId);
+      
+      if (records.isEmpty) continue;
+
+      // นับอารมณ์เชิงบวก (happy, neutral)
+      int positiveCount = records.where((r) {
+        final emotion = (r['emotion'] as String?)?.toLowerCase();
+        return emotion == 'happy' || emotion == 'neutral';
+      }).length;
+
+      double positiveRatio = positiveCount / records.length;
+      
+      dailyData.add({
+        'session_id': sessionId,
+        'timestamp': session['start_time'] as String,
+        'positive_ratio': positiveRatio,
+        'total_questions': records.length,
+      });
+    }
+
     setState(() {
-      _dailyData = dailyData.take(10).toList();
+      _dailyData = dailyData;
     });
+
+    print('✅ Loaded ${_dailyData.length} completed sessions for daily chart');
   }
 
+  /// ✅ ไม่ต้องแก้: รายเดือนใช้ทุก record (ถูกต้องอยู่แล้ว)
   Future<void> _loadMonthlyData() async {
     final records = await _emotionDb.getRecordsByMonth(_selectedMonth);
     Map<String, int> emotionCounts = {};
@@ -230,7 +237,7 @@ class _HistoryPageState extends State<HistoryPage> {
 
   Widget _buildDailyChart() {
     if (_dailyData.isEmpty) {
-      return _buildEmptyState('ยังไม่มีข้อมูล');
+      return _buildEmptyState('ยังไม่มีข้อมูลชุดคำถามที่ทำครบ');
     }
 
     return Padding(
@@ -248,7 +255,7 @@ class _HistoryPageState extends State<HistoryPage> {
           ),
           const SizedBox(height: 8),
           Text(
-            '10 ครั้งล่าสุด',
+            'จากชุดคำถามที่ทำครบ (5 คำถาม)',
             style: TextStyle(
               fontSize: 14,
               color: Colors.grey.shade600,
@@ -491,7 +498,7 @@ class _HistoryPageState extends State<HistoryPage> {
 
           const SizedBox(height: 24),
 
-          // Pie Chart (ไม่มีตัวเลข)
+          // Pie Chart
           Container(
             padding: const EdgeInsets.all(20),
             decoration: BoxDecoration(
@@ -514,7 +521,7 @@ class _HistoryPageState extends State<HistoryPage> {
                   sections: _monthlyData.entries.map((entry) {
                     return PieChartSectionData(
                       value: entry.value.toDouble(),
-                      title: '', // ไม่แสดงตัวเลขบนกราฟ
+                      title: '',
                       color: colors[entry.key] ?? Colors.grey,
                       radius: 60,
                     );
@@ -526,7 +533,7 @@ class _HistoryPageState extends State<HistoryPage> {
 
           const SizedBox(height: 24),
 
-          // Legend พร้อมเปอร์เซ็นต์
+          // Legend
           Container(
             padding: const EdgeInsets.all(20),
             decoration: BoxDecoration(
@@ -628,6 +635,7 @@ class _HistoryPageState extends State<HistoryPage> {
                 fontSize: 18,
                 color: Colors.grey.shade500,
               ),
+              textAlign: TextAlign.center,
             ),
           ],
         ),
