@@ -26,6 +26,7 @@ class _StoryTellingPageState extends State<StoryTellingPage> {
   bool _isRecording = false;
   bool _isProcessing = false;
   bool _isPlayingAudio = false;
+  bool _hasPlayedOnce = false; // ✅ เพิ่ม flag เช็คว่าเคยเล่นแล้ว
   bool _isDisposed = false;
   String? _audioPath;
 
@@ -57,22 +58,27 @@ class _StoryTellingPageState extends State<StoryTellingPage> {
   }
 
   void _setupAudioPlayer() {
-    // ✅ ฟัง state changes
+    // ✅ ฟัง state changes และจัดการ completed state
     _audioPlayer.playerStateStream.listen((state) {
       if (!mounted || _isDisposed) return;
       
       print('🎵 StoryTelling: playing=${state.playing}, processing=${state.processingState}');
       
-      // ✅ เช็ค completed ก่อน
+      // ✅ เช็ค completed ก่อน - เมื่อเล่นจบให้เปลี่ยนเป็น replay
       if (state.processingState == ProcessingState.completed) {
-        setState(() {
-          _isPlayingAudio = false;
-        });
-        print('✅ StoryTelling audio completed - button reset');
+        if (mounted && !_isDisposed) {
+          setState(() {
+            _isPlayingAudio = false;
+            _hasPlayedOnce = true; // ✅ บันทึกว่าเคยเล่นแล้ว
+          });
+        }
+        print('✅ StoryTelling audio completed - button reset to replay');
       } else {
-        setState(() {
-          _isPlayingAudio = state.playing;
-        });
+        if (mounted && !_isDisposed) {
+          setState(() {
+            _isPlayingAudio = state.playing;
+          });
+        }
       }
     });
 
@@ -90,15 +96,15 @@ class _StoryTellingPageState extends State<StoryTellingPage> {
       print('🔊 Playing storytelling audio...');
       
       await _audioPlayer.stop();
-      
       await _audioPlayer.setAsset('assets/audio/welcome2.m4a');
-      
       await _audioPlayer.setVolume(1.0);
-      
       await _audioPlayer.play();
       
       if (mounted && !_isDisposed) {
-        setState(() => _isPlayingAudio = true);
+        setState(() {
+          _isPlayingAudio = true;
+          _hasPlayedOnce = true;
+        });
       }
       
       print('✅ StoryTelling audio started');
@@ -318,15 +324,15 @@ class _StoryTellingPageState extends State<StoryTellingPage> {
                       
                       const SizedBox(height: 24),
                       
-                      // ✅ ปุ่มเล่น/หยุดเสียง
+                      // ✅ ปุ่มเล่น/หยุดเสียง - เปลี่ยนเป็น "ฟังอีกครั้ง" เมื่อเล่นจบ
                       ElevatedButton.icon(
                         onPressed: _isPlayingAudio ? _stopQuestionAudio : _playQuestionAudio,
                         icon: Icon(
-                          _isPlayingAudio ? Icons.stop : Icons.play_arrow,
+                          _isPlayingAudio ? Icons.stop : (_hasPlayedOnce ? Icons.replay : Icons.play_arrow),
                           size: 28,
                         ),
                         label: Text(
-                          _isPlayingAudio ? 'หยุดเสียง' : 'อ่านคำถามให้ฟัง',
+                          _isPlayingAudio ? 'หยุดเสียง' : (_hasPlayedOnce ? 'ฟังอีกครั้ง' : 'ฟังคำถาม'),
                           style: const TextStyle(
                             fontSize: 16,
                             fontWeight: FontWeight.w600,

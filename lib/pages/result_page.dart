@@ -1,5 +1,6 @@
 import 'dart:io';
-import 'dart:math';
+import 'dart:async';
+import 'dart:math'; // ✅ เพิ่มบรรทัดนี้
 import 'package:flutter/material.dart';
 import 'package:just_audio/just_audio.dart';
 import 'package:fungjai_app_new/services/prediction_result.dart';
@@ -27,17 +28,21 @@ class _ResultPageState extends State<ResultPage> {
   final AudioPlayer _audioPlayer = AudioPlayer();
   
   bool _isPlayingAudio = false;
-  bool _hasPlayedOnce = false;
+  bool _hasPlayedOnce = false; // ✅ เพิ่ม flag เช็คว่าเคยเล่นแล้ว
   bool _isDisposed = false;
   
   String _comfortMessage = '';
   String? _audioFilePath;
   int _selectedMessageIndex = 0;
+  
+  // ✅ เพิ่มตัวแปรเก็บกิจกรรมที่สุ่มแล้ว
+  Map<String, String>? _selectedActivity;
 
   @override
   void initState() {
     super.initState();
     _selectRandomMessage();
+    _selectRandomActivity(); // ✅ สุ่มกิจกรรมครั้งเดียว
     _initAudio();
   }
 
@@ -55,22 +60,30 @@ class _ResultPageState extends State<ResultPage> {
     final random = Random();
     final emotion = widget.analysisResult.emotion.toLowerCase();
 
-    // ดึงรายการข้อความทั้งหมดของอารมณ์นั้นๆ
     final messageList = _getComfortMessageList(emotion);
-    
-    // สุ่มเลือก index
     _selectedMessageIndex = random.nextInt(messageList.length);
-    
-    // เลือกข้อความ
     _comfortMessage = messageList[_selectedMessageIndex]['text']!;
-    
-    // เลือกไฟล์เสียงที่คู่กัน
     _audioFilePath = messageList[_selectedMessageIndex]['audio']!;
     
     print('📝 Emotion: $emotion');
     print('📝 Selected message index: $_selectedMessageIndex');
     print('📝 Message: $_comfortMessage');
     print('🔊 Audio file: $_audioFilePath');
+  }
+
+  // ✅ สุ่มกิจกรรมครั้งเดียว
+  void _selectRandomActivity() {
+    final emotion = widget.analysisResult.emotion.toLowerCase();
+    final allActivities = _getActivities(emotion);
+    
+    if (allActivities.isEmpty) {
+      _selectedActivity = null;
+      print('❌ No activities for emotion: $emotion');
+    } else {
+      final random = Random();
+      _selectedActivity = allActivities[random.nextInt(allActivities.length)];
+      print('🎯 Selected activity: ${_selectedActivity!['name']}');
+    }
   }
 
   // รายการข้อความและไฟล์เสียงคู่กัน
@@ -178,15 +191,17 @@ class _ResultPageState extends State<ResultPage> {
 
   // ตั้งค่า AudioPlayer
   Future<void> _initAudio() async {
+    // ✅ ฟัง state changes และจัดการ completed state
     _audioPlayer.playerStateStream.listen((state) {
       if (!mounted || _isDisposed) return;
       
+      // ✅ เช็ค completed ก่อน - เมื่อเล่นจบให้เปลี่ยนเป็น replay
       if (state.processingState == ProcessingState.completed) {
         print('✅ Audio playback completed');
         if (mounted && !_isDisposed) {
           setState(() {
             _isPlayingAudio = false;
-            _hasPlayedOnce = true;
+            _hasPlayedOnce = true; // ✅ บันทึกว่าเคยเล่นแล้ว
           });
         }
       } else {
@@ -198,11 +213,7 @@ class _ResultPageState extends State<ResultPage> {
       }
     });
 
-    // Auto-play เมื่อเข้าหน้า
-    await Future.delayed(const Duration(milliseconds: 800));
-    if (!_hasPlayedOnce && mounted && !_isDisposed) {
-      await _playComfortAudio();
-    }
+    // ✅ ลบ auto-play ออก - ให้ผู้ใช้กดเอง
   }
 
   // เล่นไฟล์เสียงปลอบประโลม
@@ -280,7 +291,6 @@ class _ResultPageState extends State<ResultPage> {
   @override
   Widget build(BuildContext context) {
     final topEmotion = widget.analysisResult.emotion;
-    final activity = _getRandomActivity(topEmotion);
     final emotionIcon = _getEmotionIcon(topEmotion);
     final emotionColor = _getEmotionColor(topEmotion);
 
@@ -397,7 +407,7 @@ class _ResultPageState extends State<ResultPage> {
 
                 const SizedBox(height: 20),
 
-                // ปุ่มควบคุมเสียง
+                // ✅ ปุ่มควบคุมเสียง - เปลี่ยนเป็น "ฟังอีกครั้ง" เมื่อเล่นจบ
                 Row(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
@@ -461,7 +471,7 @@ class _ResultPageState extends State<ResultPage> {
                 const SizedBox(height: 32),
 
                 // Activities Section
-                if (activity != null) ...[
+                if (_selectedActivity != null) ...[
                   Row(
                     children: [
                       Icon(
@@ -483,9 +493,9 @@ class _ResultPageState extends State<ResultPage> {
                   const SizedBox(height: 16),
 
                   _buildActivityCard(
-                    activity['name']!,
-                    activity['icon']!,
-                    activity['url']!,
+                    _selectedActivity!['name']!,
+                    _selectedActivity!['icon']!,
+                    _selectedActivity!['url']!,
                     emotionColor,
                     context,
                   ),
@@ -624,13 +634,7 @@ class _ResultPageState extends State<ResultPage> {
     return colors[emotion.toLowerCase()] ?? Colors.teal;
   }
 
-  Map<String, String>? _getRandomActivity(String emotion) {
-    final allActivities = _getActivities(emotion);
-    if (allActivities.isEmpty) return null;
-
-    final random = Random();
-    return allActivities[random.nextInt(allActivities.length)];
-  }
+  // ✅ ลบฟังก์ชัน _getRandomActivity ออก เพราะเราสุ่มใน initState แล้ว
 
   List<Map<String, String>> _getActivities(String emotion) {
     final activities = {

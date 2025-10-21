@@ -16,6 +16,7 @@ class WelcomePage extends StatefulWidget {
 class _WelcomePageState extends State<WelcomePage> {
   late final AudioPlayer _audioPlayer;
   bool _isPlaying = false;
+  bool _hasPlayedOnce = false; // ✅ เพิ่ม flag เช็คว่าเคยเล่นแล้ว
 
   @override
   void initState() {
@@ -31,21 +32,24 @@ class _WelcomePageState extends State<WelcomePage> {
   }
 
   void _setupAudioPlayer() {
-    // ✅ ฟัง state changes
+    // ✅ ฟัง playerState และจัดการทุก case
     _audioPlayer.playerStateStream.listen((state) {
       if (!mounted) return;
       
       print('🎵 Welcome state: playing=${state.playing}, processing=${state.processingState}');
       
-      // ✅ อัปเดต state ตาม processing state
-      if (state.processingState == ProcessingState.completed) {
+      final isCompleted = state.processingState == ProcessingState.completed;
+      final isPlaying = state.playing && !isCompleted;
+      
+      print('   -> isCompleted=$isCompleted, isPlaying=$isPlaying');
+      
+      if (mounted) {
         setState(() {
-          _isPlaying = false;
-        });
-        print('✅ Welcome audio completed - button reset');
-      } else {
-        setState(() {
-          _isPlaying = state.playing;
+          _isPlaying = isPlaying;
+          if (isCompleted) {
+            _hasPlayedOnce = true;
+            print('✅ Set _hasPlayedOnce = true');
+          }
         });
       }
     });
@@ -60,7 +64,10 @@ class _WelcomePageState extends State<WelcomePage> {
       await _audioPlayer.setVolume(1.0);
       await _audioPlayer.play();
       
-      setState(() => _isPlaying = true);
+      setState(() {
+        _isPlaying = true;
+        _hasPlayedOnce = true;
+      });
       
     } catch (e) {
       print('❌ Error playing audio: $e');
@@ -72,6 +79,23 @@ class _WelcomePageState extends State<WelcomePage> {
           ),
         );
       }
+    }
+  }
+
+  Future<void> _stopWelcomeAudio() async {
+    try {
+      print('🛑 Stopping welcome audio...');
+      await _audioPlayer.stop();
+      
+      if (mounted) {
+        setState(() {
+          _isPlaying = false;
+        });
+      }
+      
+      print('✅ Welcome audio stopped');
+    } catch (e) {
+      print('❌ Error stopping audio: $e');
     }
   }
 
@@ -183,21 +207,28 @@ class _WelcomePageState extends State<WelcomePage> {
               
               const SizedBox(height: 24),
               
+              // ✅ ปุ่มเล่น/หยุดเสียง
               ElevatedButton.icon(
-                onPressed: _isPlaying ? null : _playWelcomeAudio,
+                onPressed: _isPlaying ? _stopWelcomeAudio : _playWelcomeAudio,
                 icon: Icon(
-                  _isPlaying ? Icons.volume_up : Icons.play_arrow,
+                  _isPlaying 
+                      ? Icons.stop 
+                      : (_hasPlayedOnce ? Icons.replay : Icons.play_arrow),
                   size: 28,
                 ),
                 label: Text(
-                  _isPlaying ? 'กำลังเล่นเสียง...' : 'ฟังข้อความ',
+                  _isPlaying 
+                      ? 'หยุดเสียง' 
+                      : (_hasPlayedOnce ? 'ฟังอีกครั้ง' : 'ฟังข้อความ'),
                   style: const TextStyle(
                     fontSize: 18,
                     fontWeight: FontWeight.w600,
                   ),
                 ),
                 style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFF2D5F5F),
+                  backgroundColor: _isPlaying 
+                      ? Colors.red.shade600 
+                      : const Color(0xFF2D5F5F),
                   foregroundColor: Colors.white,
                   padding: const EdgeInsets.symmetric(
                     horizontal: 32,
@@ -210,17 +241,33 @@ class _WelcomePageState extends State<WelcomePage> {
                 ),
               ),
               
+              // ✅ แสดงสถานะเมื่อกำลังเล่น
               if (_isPlaying)
                 Padding(
                   padding: const EdgeInsets.only(top: 12),
-                  child: SizedBox(
-                    width: 200,
-                    child: LinearProgressIndicator(
-                      backgroundColor: Colors.grey.shade300,
-                      valueColor: AlwaysStoppedAnimation<Color>(
-                        const Color(0xFF2D5F5F),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          valueColor: AlwaysStoppedAnimation<Color>(
+                            Colors.red.shade600,
+                          ),
+                        ),
                       ),
-                    ),
+                      const SizedBox(width: 8),
+                      Text(
+                        'กำลังเล่นเสียง...',
+                        style: TextStyle(
+                          fontSize: 14,
+                          color: Colors.red.shade600,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ],
                   ),
                 ),
               
