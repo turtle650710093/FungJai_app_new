@@ -96,7 +96,7 @@ class _StoryTellingPageState extends State<StoryTellingPage> {
       print('🔊 Playing storytelling audio...');
       
       await _audioPlayer.stop();
-      await _audioPlayer.setAsset('assets/audio/welcome2.m4a');
+      await _audioPlayer.setAsset('assets/audio/welcome1.m4a');
       await _audioPlayer.setVolume(1.0);
       await _audioPlayer.play();
       

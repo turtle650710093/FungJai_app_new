@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:intl/intl.dart';
+import 'package:intl/date_symbol_data_local.dart';
 import 'package:fungjai_app_new/services/emotion_database_helper.dart';
 
 class HistoryPage extends StatefulWidget {
@@ -12,56 +13,100 @@ class HistoryPage extends StatefulWidget {
 
 class _HistoryPageState extends State<HistoryPage> {
   final EmotionDatabaseHelper _emotionDb = EmotionDatabaseHelper();
-  List<Map<String, dynamic>> _dailyData = [];
+  
+  List<Map<String, dynamic>> _todaySessions = [];
   Map<String, int> _monthlyData = {};
+  
   bool _isLoading = true;
+  bool _localeInitialized = false;
+  String _selectedView = 'daily';
+  
+  DateTime _selectedDate = DateTime.now();
   DateTime _selectedMonth = DateTime.now();
-  String _selectedView = 'daily'; // 'daily' หรือ 'monthly'
 
   @override
   void initState() {
     super.initState();
-    _loadData();
+    _initializeLocale();
+  }
+
+  /// ✅ Initialize Thai locale
+  Future<void> _initializeLocale() async {
+    try {
+      await initializeDateFormatting('th_TH', null);
+      setState(() {
+        _localeInitialized = true;
+      });
+      _loadData();
+    } catch (e) {
+      print('Error initializing locale: $e');
+      setState(() {
+        _localeInitialized = true;
+      });
+      _loadData();
+    }
   }
 
   Future<void> _loadData() async {
+    if (!_localeInitialized) return;
+    
     setState(() => _isLoading = true);
 
-    if (_selectedView == 'daily') {
-      await _loadDailyData();
-    } else {
-      await _loadMonthlyData();
+    try {
+      if (_selectedView == 'daily') {
+        await _loadDailyData();
+      } else {
+        await _loadMonthlyData();
+      }
+    } catch (e) {
+      print('Error loading data: $e');
     }
 
     setState(() => _isLoading = false);
   }
 
-  /// ✅ แก้ไข: ดึงเฉพาะ session ที่ทำครบ (status = 'completed' และ completed_questions >= 5)
   Future<void> _loadDailyData() async {
     final db = await _emotionDb.database;
     
-    // ดึง sessions ที่ status = 'completed' และทำครบ 5 คำถาม
+    final startOfDay = DateTime(
+      _selectedDate.year,
+      _selectedDate.month,
+      _selectedDate.day,
+      0, 0, 0,
+    );
+    final endOfDay = DateTime(
+      _selectedDate.year,
+      _selectedDate.month,
+      _selectedDate.day,
+      23, 59, 59,
+    );
+    
+    print('🔍 Loading sessions for ${startOfDay.toIso8601String()} to ${endOfDay.toIso8601String()}');
+    
     final sessions = await db.query(
       'sessions',
-      where: 'status = ? AND completed_questions >= ?',
-      whereArgs: ['completed', 5],
-      orderBy: 'start_time DESC',
-      limit: 10,
+      where: 'status = ? AND completed_questions >= ? AND start_time >= ? AND start_time <= ?',
+      whereArgs: [
+        'completed',
+        5,
+        startOfDay.toIso8601String(),
+        endOfDay.toIso8601String(),
+      ],
+      orderBy: 'start_time ASC',
     );
 
-    print('📊 Found ${sessions.length} completed sessions (5+ questions)');
+    print('📊 Found ${sessions.length} completed sessions on ${_formatDateSafe(_selectedDate)}');
 
-    List<Map<String, dynamic>> dailyData = [];
+    List<Map<String, dynamic>> todaySessions = [];
 
-    for (var session in sessions) {
+    for (var i = 0; i < sessions.length; i++) {
+      final session = sessions[i];
       final sessionId = session['id'] as int;
       
-      // ดึง emotion records ของ session นี้
       final records = await _emotionDb.getSessionRecords(sessionId);
       
       if (records.isEmpty) continue;
 
-      // นับอารมณ์เชิงบวก (happy, neutral)
       int positiveCount = records.where((r) {
         final emotion = (r['emotion'] as String?)?.toLowerCase();
         return emotion == 'happy' || emotion == 'neutral';
@@ -69,22 +114,25 @@ class _HistoryPageState extends State<HistoryPage> {
 
       double positiveRatio = positiveCount / records.length;
       
-      dailyData.add({
+      todaySessions.add({
+        'session_number': i + 1,
         'session_id': sessionId,
         'timestamp': session['start_time'] as String,
         'positive_ratio': positiveRatio,
         'total_questions': records.length,
+        'positive_count': positiveCount,
       });
+      
+      print('  ✅ Session ${i + 1}: ${(positiveRatio * 100).toStringAsFixed(0)}% positive ($positiveCount/${records.length})');
     }
 
     setState(() {
-      _dailyData = dailyData;
+      _todaySessions = todaySessions;
     });
 
-    print('✅ Loaded ${_dailyData.length} completed sessions for daily chart');
+    print('✅ Loaded ${_todaySessions.length} sessions for daily chart');
   }
 
-  /// ✅ ไม่ต้องแก้: รายเดือนใช้ทุก record (ถูกต้องอยู่แล้ว)
   Future<void> _loadMonthlyData() async {
     final records = await _emotionDb.getRecordsByMonth(_selectedMonth);
     Map<String, int> emotionCounts = {};
@@ -113,6 +161,46 @@ class _HistoryPageState extends State<HistoryPage> {
     return map[emotion.toLowerCase()] ?? emotion;
   }
 
+  /// ✅ Safe date formatting
+  String _formatDateSafe(DateTime date, [String pattern = 'd MMMM yyyy']) {
+    try {
+      if (_localeInitialized) {
+        return DateFormat(pattern, 'th_TH').format(date);
+      }
+    } catch (e) {
+      print('Error formatting date: $e');
+    }
+    return '${date.day}/${date.month}/${date.year}';
+  }
+
+  String _formatTimeSafe(DateTime date) {
+    try {
+      return DateFormat('HH:mm').format(date);
+    } catch (e) {
+      return '${date.hour.toString().padLeft(2, '0')}:${date.minute.toString().padLeft(2, '0')}';
+    }
+  }
+
+  void _changeDate(int days) {
+    setState(() {
+      _selectedDate = _selectedDate.add(Duration(days: days));
+    });
+    _loadData();
+  }
+
+  bool _canGoToNextDay() {
+    final tomorrow = _selectedDate.add(const Duration(days: 1));
+    final today = DateTime.now();
+    return tomorrow.isBefore(DateTime(today.year, today.month, today.day, 23, 59, 59));
+  }
+
+  bool _isToday(DateTime date) {
+    final now = DateTime.now();
+    return date.year == now.year &&
+           date.month == now.month &&
+           date.day == now.day;
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -130,14 +218,11 @@ class _HistoryPageState extends State<HistoryPage> {
         ),
         centerTitle: true,
       ),
-      body: _isLoading
+      body: !_localeInitialized || _isLoading
           ? const Center(child: CircularProgressIndicator())
           : Column(
               children: [
-                // Tab Selector
                 _buildTabSelector(),
-                
-                // Content
                 Expanded(
                   child: SingleChildScrollView(
                     child: _selectedView == 'daily'
@@ -175,6 +260,7 @@ class _HistoryPageState extends State<HistoryPage> {
               onTap: () {
                 setState(() {
                   _selectedView = 'daily';
+                  _selectedDate = DateTime.now();
                 });
                 _loadData();
               },
@@ -236,15 +322,14 @@ class _HistoryPageState extends State<HistoryPage> {
   }
 
   Widget _buildDailyChart() {
-    if (_dailyData.isEmpty) {
-      return _buildEmptyState('ยังไม่มีข้อมูลชุดคำถามที่ทำครบ');
-    }
-
     return Padding(
       padding: const EdgeInsets.all(20.0),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          _buildDateSelector(),
+          const SizedBox(height: 20),
+          
           const Text(
             'สัดส่วนอารมณ์เชิงบวก',
             style: TextStyle(
@@ -261,129 +346,434 @@ class _HistoryPageState extends State<HistoryPage> {
               color: Colors.grey.shade600,
             ),
           ),
-          const SizedBox(height: 24),
           
+          const SizedBox(height: 12),
           Container(
-            padding: const EdgeInsets.all(20),
+            padding: const EdgeInsets.all(12),
             decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(16),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withOpacity(0.05),
-                  blurRadius: 10,
-                  offset: const Offset(0, 2),
+              color: const Color(0xFF4CAF50).withOpacity(0.1),
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(
+                color: const Color(0xFF4CAF50).withOpacity(0.3),
+                width: 1,
+              ),
+            ),
+            child: Row(
+              children: [
+                const Icon(
+                  Icons.info_outline,
+                  color: Color(0xFF4CAF50),
+                  size: 20,
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    'อารมณ์เชิงบวก: มีความสุข และ เป็นกลาง',
+                    style: TextStyle(
+                      fontSize: 13,
+                      color: Colors.grey.shade700,
+                    ),
+                  ),
                 ),
               ],
             ),
-            child: SizedBox(
-              height: 300,
-              child: LineChart(
-                LineChartData(
-                  gridData: FlGridData(
-                    show: true,
-                    drawVerticalLine: false,
-                    horizontalInterval: 0.25,
-                    getDrawingHorizontalLine: (value) {
-                      return FlLine(
-                        color: Colors.grey.shade200,
-                        strokeWidth: 1,
-                      );
-                    },
+          ),
+          
+          const SizedBox(height: 24),
+          
+          _todaySessions.isEmpty
+              ? _buildEmptyChart()
+              : _buildChartWithData(),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildDateSelector() {
+    final isToday = _isToday(_selectedDate);
+    final canGoNext = _canGoToNextDay();
+    
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.05),
+            blurRadius: 10,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          IconButton(
+            icon: const Icon(Icons.chevron_left),
+            onPressed: () => _changeDate(-1),
+            color: const Color(0xFF2D5F5F),
+          ),
+          
+          Expanded(
+            child: Column(
+              children: [
+                Text(
+                  isToday ? 'วันนี้' : _formatDateSafe(_selectedDate),
+                  style: const TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                    color: Color(0xFF2D5F5F),
                   ),
-                  titlesData: FlTitlesData(
-                    leftTitles: AxisTitles(
-                      sideTitles: SideTitles(
-                        showTitles: true,
-                        reservedSize: 50,
-                        interval: 0.25,
-                        getTitlesWidget: (value, meta) {
+                  textAlign: TextAlign.center,
+                ),
+                if (!isToday)
+                  Text(
+                    _formatDateSafe(_selectedDate, 'EEEE'),
+                    style: TextStyle(
+                      fontSize: 14,
+                      color: Colors.grey.shade600,
+                    ),
+                  ),
+              ],
+            ),
+          ),
+          
+          IconButton(
+            icon: const Icon(Icons.chevron_right),
+            onPressed: canGoNext ? () => _changeDate(1) : null,
+            color: canGoNext ? const Color(0xFF2D5F5F) : Colors.grey.shade300,
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildChartWithData() {
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.05),
+            blurRadius: 10,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Column(
+        children: [
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            decoration: BoxDecoration(
+              color: const Color(0xFF4CAF50).withOpacity(0.1),
+              borderRadius: BorderRadius.circular(20),
+            ),
+            child: Text(
+              'ผ่านมา ${_todaySessions.length} ชุด',
+              style: const TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.bold,
+                color: Color(0xFF4CAF50),
+              ),
+            ),
+          ),
+          
+          const SizedBox(height: 20),
+          
+          SizedBox(
+            height: 300,
+            child: LineChart(
+              LineChartData(
+                gridData: FlGridData(
+                  show: true,
+                  drawVerticalLine: false,
+                  horizontalInterval: 0.25,
+                  getDrawingHorizontalLine: (value) {
+                    return FlLine(
+                      color: Colors.grey.shade200,
+                      strokeWidth: 1,
+                    );
+                  },
+                ),
+                titlesData: FlTitlesData(
+                  leftTitles: AxisTitles(
+                    sideTitles: SideTitles(
+                      showTitles: true,
+                      reservedSize: 50,
+                      interval: 0.25,
+                      getTitlesWidget: (value, meta) {
+                        return Padding(
+                          padding: const EdgeInsets.only(right: 8),
+                          child: Text(
+                            '${(value * 100).toInt()}%',
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: Colors.grey.shade600,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                        );
+                      },
+                    ),
+                  ),
+                  rightTitles: const AxisTitles(
+                    sideTitles: SideTitles(showTitles: false),
+                  ),
+                  topTitles: const AxisTitles(
+                    sideTitles: SideTitles(showTitles: false),
+                  ),
+                  bottomTitles: AxisTitles(
+                    sideTitles: SideTitles(
+                      showTitles: true,
+                      reservedSize: 50,
+                      interval: 1,
+                      getTitlesWidget: (value, meta) {
+                        final index = value.toInt();
+                        if (index >= 0 && index < _todaySessions.length) {
+                          final sessionNumber = _todaySessions[index]['session_number'] as int;
+                          final timestamp = _todaySessions[index]['timestamp'] as String;
+                          final time = DateTime.parse(timestamp);
+                          
                           return Padding(
-                            padding: const EdgeInsets.only(right: 8),
-                            child: Text(
-                              '${(value * 100).toInt()}%',
-                              style: TextStyle(
-                                fontSize: 12,
-                                color: Colors.grey.shade600,
-                              ),
+                            padding: const EdgeInsets.only(top: 8),
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Text(
+                                  'ชุดที่ $sessionNumber',
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.bold,
+                                    color: Colors.grey.shade800,
+                                  ),
+                                ),
+                                const SizedBox(height: 2),
+                                Text(
+                                  _formatTimeSafe(time),
+                                  style: TextStyle(
+                                    fontSize: 10,
+                                    color: Colors.grey.shade600,
+                                  ),
+                                ),
+                              ],
                             ),
                           );
-                        },
-                      ),
+                        }
+                        return const SizedBox.shrink();
+                      },
                     ),
-                    rightTitles: const AxisTitles(
-                      sideTitles: SideTitles(showTitles: false),
+                  ),
+                ),
+                borderData: FlBorderData(show: false),
+                minY: 0,
+                maxY: 1,
+                // ✅ สำหรับ fl_chart 0.65.0 ใช้ tooltipBgColor
+                lineTouchData: LineTouchData(
+                  enabled: true,
+                  touchTooltipData: LineTouchTooltipData(
+                    tooltipBgColor: const Color(0xFF2D5F5F),
+                    tooltipRoundedRadius: 8,
+                    tooltipPadding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 8,
                     ),
-                    topTitles: const AxisTitles(
-                      sideTitles: SideTitles(showTitles: false),
+                    getTooltipItems: (touchedSpots) {
+                      return touchedSpots.map((spot) {
+                        final index = spot.x.toInt();
+                        if (index >= 0 && index < _todaySessions.length) {
+                          final data = _todaySessions[index];
+                          final sessionNumber = data['session_number'] as int;
+                          final timestamp = data['timestamp'] as String;
+                          final time = DateTime.parse(timestamp);
+                          final positiveRatio = data['positive_ratio'] as double;
+                          final positiveCount = data['positive_count'] as int;
+                          final totalQuestions = data['total_questions'] as int;
+                          
+                          return LineTooltipItem(
+                            'ชุดที่ $sessionNumber (${_formatTimeSafe(time)})\n'
+                            '${(positiveRatio * 100).toStringAsFixed(0)}% เชิงบวก\n'
+                            '($positiveCount/$totalQuestions คำถาม)',
+                            const TextStyle(
+                              color: Colors.white,
+                              fontWeight: FontWeight.bold,
+                              fontSize: 12,
+                            ),
+                          );
+                        }
+                        return null;
+                      }).toList();
+                    },
+                  ),
+                  handleBuiltInTouches: true,
+                ),
+                lineBarsData: [
+                  LineChartBarData(
+                    spots: _todaySessions.asMap().entries.map((entry) {
+                      return FlSpot(
+                        entry.key.toDouble(),
+                        entry.value['positive_ratio'] as double,
+                      );
+                    }).toList(),
+                    isCurved: true,
+                    curveSmoothness: 0.35,
+                    color: const Color(0xFF4CAF50),
+                    barWidth: 3,
+                    dotData: FlDotData(
+                      show: true,
+                      getDotPainter: (spot, percent, barData, index) {
+                        return FlDotCirclePainter(
+                          radius: 5,
+                          color: Colors.white,
+                          strokeWidth: 2.5,
+                          strokeColor: const Color(0xFF4CAF50),
+                        );
+                      },
                     ),
-                    bottomTitles: AxisTitles(
-                      sideTitles: SideTitles(
-                        showTitles: true,
-                        reservedSize: 40,
-                        getTitlesWidget: (value, meta) {
-                          if (value.toInt() >= 0 && value.toInt() < _dailyData.length) {
-                            return Padding(
-                              padding: const EdgeInsets.only(top: 8),
-                              child: Text(
-                                '${_dailyData.length - value.toInt()}',
-                                style: TextStyle(
-                                  fontSize: 12,
-                                  color: Colors.grey.shade600,
-                                ),
-                              ),
-                            );
-                          }
-                          return const Text('');
-                        },
+                    belowBarData: BarAreaData(
+                      show: true,
+                      gradient: LinearGradient(
+                        colors: [
+                          const Color(0xFF4CAF50).withOpacity(0.3),
+                          const Color(0xFF4CAF50).withOpacity(0.05),
+                        ],
+                        begin: Alignment.topCenter,
+                        end: Alignment.bottomCenter,
                       ),
                     ),
                   ),
-                  borderData: FlBorderData(show: false),
-                  minY: 0,
-                  maxY: 1,
-                  lineBarsData: [
-                    LineChartBarData(
-                      spots: _dailyData.asMap().entries.map((entry) {
-                        return FlSpot(
-                          entry.key.toDouble(),
-                          entry.value['positive_ratio'] as double,
-                        );
-                      }).toList(),
-                      isCurved: true,
-                      curveSmoothness: 0.3,
-                      color: const Color(0xFF4CAF50),
-                      barWidth: 3,
-                      dotData: FlDotData(
-                        show: true,
-                        getDotPainter: (spot, percent, barData, index) {
-                          return FlDotCirclePainter(
-                            radius: 4,
-                            color: Colors.white,
-                            strokeWidth: 2,
-                            strokeColor: const Color(0xFF4CAF50),
-                          );
-                        },
-                      ),
-                      belowBarData: BarAreaData(
-                        show: true,
-                        gradient: LinearGradient(
-                          colors: [
-                            const Color(0xFF4CAF50).withOpacity(0.3),
-                            const Color(0xFF4CAF50).withOpacity(0.05),
-                          ],
-                          begin: Alignment.topCenter,
-                          end: Alignment.bottomCenter,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
+                ],
               ),
+            ),
+          ),
+          
+          const SizedBox(height: 16),
+          const Divider(),
+          const SizedBox(height: 12),
+          _buildStatsSummary(),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildEmptyChart() {
+    return Container(
+      padding: const EdgeInsets.all(40),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.05),
+            blurRadius: 10,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Column(
+        children: [
+          Icon(
+            Icons.inbox_outlined,
+            size: 80,
+            color: Colors.grey.shade300,
+          ),
+          const SizedBox(height: 16),
+          Text(
+            _isToday(_selectedDate)
+                ? 'ยังไม่มีข้อมูลในวันนี้'
+                : 'ไม่มีข้อมูลในวันที่เลือก',
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              fontSize: 18,
+              fontWeight: FontWeight.bold,
+              color: Colors.grey.shade600,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            _isToday(_selectedDate)
+                ? 'เริ่มทำแบบทดสอบเพื่อดูผลลัพธ์'
+                : 'ไม่มีชุดคำถามที่ทำครบในวันนี้',
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              fontSize: 14,
+              color: Colors.grey.shade500,
             ),
           ),
         ],
       ),
+    );
+  }
+
+  Widget _buildStatsSummary() {
+    if (_todaySessions.isEmpty) return const SizedBox.shrink();
+    
+    final avgPositive = _todaySessions
+        .map((d) => d['positive_ratio'] as double)
+        .reduce((a, b) => a + b) / _todaySessions.length;
+    
+    final maxPositive = _todaySessions
+        .map((d) => d['positive_ratio'] as double)
+        .reduce((a, b) => a > b ? a : b);
+    
+    final minPositive = _todaySessions
+        .map((d) => d['positive_ratio'] as double)
+        .reduce((a, b) => a < b ? a : b);
+    
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+      children: [
+        _buildStatItem(
+          icon: Icons.trending_up,
+          label: 'สูงสุด',
+          value: '${(maxPositive * 100).toStringAsFixed(0)}%',
+          color: const Color(0xFF4CAF50),
+        ),
+        _buildStatItem(
+          icon: Icons.analytics_outlined,
+          label: 'เฉลี่ย',
+          value: '${(avgPositive * 100).toStringAsFixed(0)}%',
+          color: const Color(0xFF2196F3),
+        ),
+        _buildStatItem(
+          icon: Icons.trending_down,
+          label: 'ต่ำสุด',
+          value: '${(minPositive * 100).toStringAsFixed(0)}%',
+          color: const Color(0xFFFF9800),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildStatItem({
+    required IconData icon,
+    required String label,
+    required String value,
+    required Color color,
+  }) {
+    return Column(
+      children: [
+        Icon(icon, color: color, size: 20),
+        const SizedBox(height: 4),
+        Text(
+          label,
+          style: TextStyle(
+            fontSize: 12,
+            color: Colors.grey.shade600,
+          ),
+        ),
+        const SizedBox(height: 2),
+        Text(
+          value,
+          style: TextStyle(
+            fontSize: 16,
+            fontWeight: FontWeight.bold,
+            color: color,
+          ),
+        ),
+      ],
     );
   }
 
@@ -405,7 +795,6 @@ class _HistoryPageState extends State<HistoryPage> {
       padding: const EdgeInsets.all(20.0),
       child: Column(
         children: [
-          // Month Selector
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
             decoration: BoxDecoration(
@@ -435,7 +824,7 @@ class _HistoryPageState extends State<HistoryPage> {
                   },
                 ),
                 Text(
-                  DateFormat('MMMM yyyy').format(_selectedMonth),
+                  _formatDateSafe(_selectedMonth, 'MMMM yyyy'),
                   style: const TextStyle(
                     fontSize: 18,
                     fontWeight: FontWeight.bold,
@@ -463,7 +852,6 @@ class _HistoryPageState extends State<HistoryPage> {
 
           const SizedBox(height: 32),
 
-          // Summary Box
           Container(
             padding: const EdgeInsets.all(20),
             decoration: BoxDecoration(
@@ -498,42 +886,6 @@ class _HistoryPageState extends State<HistoryPage> {
 
           const SizedBox(height: 24),
 
-          // Pie Chart
-          Container(
-            padding: const EdgeInsets.all(20),
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(16),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withOpacity(0.05),
-                  blurRadius: 10,
-                  offset: const Offset(0, 2),
-                ),
-              ],
-            ),
-            child: SizedBox(
-              height: 250,
-              child: PieChart(
-                PieChartData(
-                  sectionsSpace: 3,
-                  centerSpaceRadius: 70,
-                  sections: _monthlyData.entries.map((entry) {
-                    return PieChartSectionData(
-                      value: entry.value.toDouble(),
-                      title: '',
-                      color: colors[entry.key] ?? Colors.grey,
-                      radius: 60,
-                    );
-                  }).toList(),
-                ),
-              ),
-            ),
-          ),
-
-          const SizedBox(height: 24),
-
-          // Legend
           Container(
             padding: const EdgeInsets.all(20),
             decoration: BoxDecoration(
@@ -548,60 +900,73 @@ class _HistoryPageState extends State<HistoryPage> {
               ],
             ),
             child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text(
-                  'รายละเอียด',
-                  style: TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.bold,
-                    color: Color(0xFF2D5F5F),
+                SizedBox(
+                  height: 200,
+                  child: PieChart(
+                    PieChartData(
+                      sections: _monthlyData.entries.map((entry) {
+                        final percentage = (entry.value / total * 100);
+                        return PieChartSectionData(
+                          value: entry.value.toDouble(),
+                          title: '${percentage.toStringAsFixed(0)}%',
+                          color: colors[entry.key] ?? Colors.grey,
+                          radius: 80,
+                          titleStyle: const TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.white,
+                          ),
+                        );
+                      }).toList(),
+                      sectionsSpace: 2,
+                      centerSpaceRadius: 0,
+                    ),
                   ),
                 ),
+                
+                const SizedBox(height: 24),
+                const Divider(),
                 const SizedBox(height: 16),
+                
                 ..._monthlyData.entries.map((entry) {
-                  final percent = (entry.value / total * 100);
+                  final percentage = (entry.value / total * 100);
                   return Padding(
-                    padding: const EdgeInsets.only(bottom: 16),
+                    padding: const EdgeInsets.only(bottom: 12),
                     child: Row(
                       children: [
                         Container(
-                          width: 24,
-                          height: 24,
+                          width: 16,
+                          height: 16,
                           decoration: BoxDecoration(
                             color: colors[entry.key] ?? Colors.grey,
-                            borderRadius: BorderRadius.circular(6),
+                            shape: BoxShape.circle,
                           ),
                         ),
                         const SizedBox(width: 12),
                         Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                entry.key,
-                                style: const TextStyle(
-                                  fontSize: 16,
-                                  fontWeight: FontWeight.w600,
-                                ),
-                              ),
-                              const SizedBox(height: 4),
-                              Text(
-                                '${entry.value} ครั้ง (${percent.toStringAsFixed(1)}%)',
-                                style: TextStyle(
-                                  fontSize: 14,
-                                  color: Colors.grey.shade600,
-                                ),
-                              ),
-                            ],
+                          child: Text(
+                            entry.key,
+                            style: const TextStyle(
+                              fontSize: 15,
+                              fontWeight: FontWeight.w500,
+                            ),
                           ),
                         ),
                         Text(
-                          '${percent.toStringAsFixed(0)}%',
-                          style: const TextStyle(
-                            fontSize: 20,
+                          '${entry.value} ครั้ง',
+                          style: TextStyle(
+                            fontSize: 14,
+                            color: Colors.grey.shade600,
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Text(
+                          '(${percentage.toStringAsFixed(1)}%)',
+                          style: TextStyle(
+                            fontSize: 14,
                             fontWeight: FontWeight.bold,
-                            color: Color(0xFF2D5F5F),
+                            color: colors[entry.key] ?? Colors.grey,
                           ),
                         ),
                       ],
@@ -619,7 +984,7 @@ class _HistoryPageState extends State<HistoryPage> {
   Widget _buildEmptyState(String message) {
     return Center(
       child: Padding(
-        padding: const EdgeInsets.all(40),
+        padding: const EdgeInsets.all(40.0),
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
@@ -628,14 +993,14 @@ class _HistoryPageState extends State<HistoryPage> {
               size: 80,
               color: Colors.grey.shade300,
             ),
-            const SizedBox(height: 20),
+            const SizedBox(height: 16),
             Text(
               message,
-              style: TextStyle(
-                fontSize: 18,
-                color: Colors.grey.shade500,
-              ),
               textAlign: TextAlign.center,
+              style: TextStyle(
+                fontSize: 16,
+                color: Colors.grey.shade600,
+              ),
             ),
           ],
         ),
