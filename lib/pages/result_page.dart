@@ -634,34 +634,33 @@ class _ResultPageState extends State<ResultPage> {
     return colors[emotion.toLowerCase()] ?? Colors.teal;
   }
 
-  // ✅ ลบฟังก์ชัน _getRandomActivity ออก เพราะเราสุ่มใน initState แล้ว
 
   List<Map<String, String>> _getActivities(String emotion) {
     final activities = {
       'happy': [
-        {'name': 'เต้นแอโรบิคสนุกๆ', 'url': 'https://www.youtube.com/watch?v=gCzgc_RelEg', 'icon': '💃'},
-        {'name': 'ทำอาหารเมนูโปรด', 'url': 'https://www.youtube.com/watch?v=h-nRx6O4Bis', 'icon': '🍳'},
-        {'name': 'ฟังเพลงสนุกๆ', 'url': 'https://www.youtube.com/watch?v=Zi_XLOBDo_Y', 'icon': '🎵'},
+        {'name': 'เต้นแอโรบิคสนุกๆ', 'url': 'https://www.youtube.com/watch?v=5lJG4B-RjLU', 'icon': '💃'},
+        {'name': 'ทำอาหาร', 'url': 'https://www.youtube.com/watch?v=20XajrM6Vyg', 'icon': '🍳'},
+        {'name': 'ฟังเพลงสนุกๆ', 'url': 'hhttps://www.youtube.com/watch?v=tBGqovfsKlQ', 'icon': '🎵'},
       ],
       'sad': [
-        {'name': 'สมาธิบำบัด ผ่อนคลายจิตใจ', 'url': 'https://www.youtube.com/watch?v=inpok4MKVLM', 'icon': '🧘'},
-        {'name': 'ฟังเพลงเบาๆ ผ่อนคลาย', 'url': 'https://www.youtube.com/watch?v=lTRiuFIWV54', 'icon': '🎶'},
-        {'name': 'ดูหนังตลก', 'url': 'https://www.youtube.com/watch?v=f3OWi1huY0k', 'icon': '😂'},
+        {'name': 'สมาธิบำบัด ผ่อนคลายจิตใจ', 'url': 'https://youtu.be/VsRar9BTJDw?si=YZxLLTGi3oDe3q3K', 'icon': '🧘'},
+        {'name': 'ฟังเพลงเบาๆ ผ่อนคลาย', 'url': 'https://youtu.be/uZnpjM08e64?si=RWSYd0xfUVV5K7Rl', 'icon': '🎶'},
+        {'name': 'ดูหนังตลก', 'url': 'https://www.youtube.com/watch?v=A7OkBTU3sRI&list=PLGo7dEzSrFYdo9Dohw_gUkRZca3VGYHzu', 'icon': '😂'},
       ],
       'angry': [
-        {'name': 'หายใจลึกๆ คลายความโกรธ', 'url': 'https://www.youtube.com/watch?v=DbDoBzGY3vo', 'icon': '😮‍💨'},
-        {'name': 'โยคะผ่อนคลาย', 'url': 'https://www.youtube.com/watch?v=v7AYKMP6rOE', 'icon': '🧘‍♀️'},
-        {'name': 'เดินเล่นในธรรมชาติ', 'url': 'https://www.youtube.com/watch?v=d5gUsc4M7I8', 'icon': '🌳'},
+        {'name': 'หายใจลึกๆ คลายความโกรธ', 'url': 'https://youtu.be/MrsdkX_y6iI?si=eFG0Sp8XY9oKC3Gw', 'icon': '😮‍💨'},
+        {'name': 'โยคะผ่อนคลาย', 'url': 'https://youtu.be/zpqIZBmkrOM?si=4qYI9YmG74RhhDWu', 'icon': '🧘‍♀️'},
+        {'name': 'เดินเล่นในธรรมชาติ', 'url': 'https://youtu.be/B9VRvOKKwfs?si=7cL8zO893eFLo5Mn', 'icon': '🌳'},
       ],
       'neutral': [
-        {'name': 'ยืดเส้นยืดสายเบาๆ', 'url': 'https://www.youtube.com/watch?v=qULTwquOuT4', 'icon': '🤸'},
-        {'name': 'ฟังธรรมะ ปลอบประโลมจิตใจ', 'url': 'https://www.youtube.com/watch?v=XqkLeT6Z7mQ', 'icon': '🙏'},
-        {'name': 'งานฝีมือง่ายๆ', 'url': 'https://www.youtube.com/watch?v=0pVhrLXUU4k', 'icon': '✂️'},
+        {'name': 'ยืดเส้นยืดสายเบาๆ', 'url': 'https://youtu.be/lKFc1vV59Dk?si=apMsbxivVZz-x3Zv', 'icon': '🤸'},
+        {'name': 'ฟังธรรมะ ปลอบประโลมจิตใจ', 'url': 'https://www.youtube.com/watch?v=eC_7hIMVeho', 'icon': '🙏'},
+        {'name': 'งานฝีมือง่ายๆ', 'url': 'https://youtube.com/shorts/N6PkvcBod48?si=PUJ1Cg5zRUzC1VOo', 'icon': '✂️'},
       ],
       'frustrated': [
-        {'name': 'ผ่อนคลายความเครียด', 'url': 'https://www.youtube.com/watch?v=86HUcX8ZtAk', 'icon': '😌'},
-        {'name': 'นวดตัวเองง่ายๆ', 'url': 'https://www.youtube.com/watch?v=3LTvOLmhZNQ', 'icon': '💆'},
-        {'name': 'ดูทิวทัศน์สวยงาม', 'url': 'https://www.youtube.com/watch?v=1ZYbU82GVz4', 'icon': '🏞️'},
+        {'name': 'ผ่อนคลายความเครียด', 'url': 'https://youtu.be/NnyH6pVVVcc?si=oEP5l5HbVDKC8A6C', 'icon': '😌'},
+        {'name': 'นวดตัวเองง่ายๆ', 'url': 'https://youtu.be/nLmPb1WXEAk?si=b9n0Udq8VGofcgLw', 'icon': '💆'},
+        {'name': 'ดูทิวทัศน์สวยงาม', 'url': 'https://youtu.be/yGPy-oT6kTE?si=fqIOcWjXuwLdrFpp', 'icon': '🏞️'},
       ],
     };
 

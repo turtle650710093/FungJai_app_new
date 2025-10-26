@@ -226,8 +226,8 @@ class _HistoryPageState extends State<HistoryPage> {
                 Expanded(
                   child: SingleChildScrollView(
                     child: _selectedView == 'daily'
-                        ? _buildDailyChart()
-                        : _buildMonthlyChart(),
+                        ? _buildDailyList()  // ✅ เปลี่ยนเป็นรายการ
+                        : _buildMonthlyChart(),  // ✅ ยังคงเป็นกราฟวงกลม
                   ),
                 ),
               ],
@@ -255,7 +255,7 @@ class _HistoryPageState extends State<HistoryPage> {
           Expanded(
             child: _buildTabButton(
               title: 'รายวัน',
-              icon: Icons.show_chart_rounded,
+              icon: Icons.list_alt_rounded,  // ✅ เปลี่ยน icon เป็นรายการ
               isSelected: _selectedView == 'daily',
               onTap: () {
                 setState(() {
@@ -321,7 +321,8 @@ class _HistoryPageState extends State<HistoryPage> {
     );
   }
 
-  Widget _buildDailyChart() {
+  // ✅ หน้ารายวัน - แสดงเป็นรายการข้อความ (ไม่มีกราฟ)
+  Widget _buildDailyList() {
     return Padding(
       padding: const EdgeInsets.all(20.0),
       child: Column(
@@ -329,23 +330,6 @@ class _HistoryPageState extends State<HistoryPage> {
         children: [
           _buildDateSelector(),
           const SizedBox(height: 20),
-          
-          const Text(
-            'สัดส่วนอารมณ์เชิงบวก',
-            style: TextStyle(
-              fontSize: 20,
-              fontWeight: FontWeight.bold,
-              color: Color(0xFF2D5F5F),
-            ),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            'จากชุดคำถามที่ทำครบ (5 คำถาม)',
-            style: TextStyle(
-              fontSize: 14,
-              color: Colors.grey.shade600,
-            ),
-          ),
           
           const SizedBox(height: 12),
           Container(
@@ -368,7 +352,7 @@ class _HistoryPageState extends State<HistoryPage> {
                 const SizedBox(width: 8),
                 Expanded(
                   child: Text(
-                    'อารมณ์เชิงบวก: มีความสุข และ เป็นกลาง',
+                    'อารมณ์เชิงบวก คือ ผลรวมของอารมณ์มีความสุขและเป็นกลาง',
                     style: TextStyle(
                       fontSize: 13,
                       color: Colors.grey.shade700,
@@ -382,11 +366,189 @@ class _HistoryPageState extends State<HistoryPage> {
           const SizedBox(height: 24),
           
           _todaySessions.isEmpty
-              ? _buildEmptyChart()
-              : _buildChartWithData(),
+              ? _buildEmptyState('ยังไม่มีข้อมูลในวันนี้')
+              : _buildSessionsList(),
         ],
       ),
     );
+  }
+
+  // ✅ แสดงรายการชุดคำถาม (ไม่มีกราฟและไม่มีสถิติสรุป)
+  Widget _buildSessionsList() {
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.05),
+            blurRadius: 10,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Column(
+        children: [
+          // Header
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: const Color(0xFF4CAF50).withOpacity(0.1),
+              borderRadius: const BorderRadius.only(
+                topLeft: Radius.circular(16),
+                topRight: Radius.circular(16),
+              ),
+            ),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                const SizedBox(width: 8),
+                Text(
+                  'ทำทั้งหมด ${_todaySessions.length} ชุด',
+                  style: const TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                    color: Color(0xFF4CAF50),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          
+          // List of sessions
+          ListView.separated(
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            itemCount: _todaySessions.length,
+            separatorBuilder: (context, index) => Divider(
+              height: 1,
+              color: Colors.grey.shade200,
+            ),
+            itemBuilder: (context, index) {
+              final session = _todaySessions[index];
+              final sessionNumber = session['session_number'] as int;
+              final timestamp = session['timestamp'] as String;
+              final time = DateTime.parse(timestamp);
+              final positiveRatio = session['positive_ratio'] as double;
+              final positiveCount = session['positive_count'] as int;
+              final totalQuestions = session['total_questions'] as int;
+              final percentage = (positiveRatio * 100).toStringAsFixed(0);
+              
+              return Container(
+                padding: const EdgeInsets.all(16),
+                child: Row(
+                  children: [
+                    // Session number badge
+                    Container(
+                      width: 50,
+                      height: 50,
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          colors: [
+                            const Color(0xFF2D5F5F),
+                            const Color(0xFF2D5F5F).withOpacity(0.7),
+                          ],
+                        ),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          const Text(
+                            'ชุดที่',
+                            style: TextStyle(
+                              fontSize: 10,
+                              color: Colors.white70,
+                            ),
+                          ),
+                          Text(
+                            '$sessionNumber',
+                            style: const TextStyle(
+                              fontSize: 18,
+                              fontWeight: FontWeight.bold,
+                              color: Colors.white,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    
+                    const SizedBox(width: 16),
+                    
+                    // Session details
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              Icon(
+                                Icons.access_time,
+                                size: 16,
+                                color: Colors.grey.shade600,
+                              ),
+                              const SizedBox(width: 4),
+                              Text(
+                                _formatTimeSafe(time),
+                                style: TextStyle(
+                                  fontSize: 14,
+                                  color: Colors.grey.shade700,
+                                  fontWeight: FontWeight.w500,
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            'อารมณ์เชิงบวก $positiveCount จาก $totalQuestions คำถาม',
+                            style: TextStyle(
+                              fontSize: 13,
+                              color: Colors.grey.shade600,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    
+                    // Percentage badge
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 6,
+                      ),
+                      decoration: BoxDecoration(
+                        color: _getPercentageColor(positiveRatio).withOpacity(0.1),
+                        borderRadius: BorderRadius.circular(20),
+                        border: Border.all(
+                          color: _getPercentageColor(positiveRatio).withOpacity(0.3),
+                          width: 1,
+                        ),
+                      ),
+                      child: Text(
+                        '$percentage%',
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                          color: _getPercentageColor(positiveRatio),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              );
+            },
+          ),
+        ],
+      ),
+    );
+  }
+
+  // Helper function to get color based on percentage
+  Color _getPercentageColor(double ratio) {
+    if (ratio >= 0.75) return const Color(0xFF4CAF50);
+    if (ratio >= 0.50) return const Color(0xFF2196F3);
+    if (ratio >= 0.25) return const Color(0xFFFF9800);
+    return const Color(0xFFF44336);
   }
 
   Widget _buildDateSelector() {
@@ -449,334 +611,7 @@ class _HistoryPageState extends State<HistoryPage> {
     );
   }
 
-  Widget _buildChartWithData() {
-    return Container(
-      padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.05),
-            blurRadius: 10,
-            offset: const Offset(0, 2),
-          ),
-        ],
-      ),
-      child: Column(
-        children: [
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-            decoration: BoxDecoration(
-              color: const Color(0xFF4CAF50).withOpacity(0.1),
-              borderRadius: BorderRadius.circular(20),
-            ),
-            child: Text(
-              'ผ่านมา ${_todaySessions.length} ชุด',
-              style: const TextStyle(
-                fontSize: 14,
-                fontWeight: FontWeight.bold,
-                color: Color(0xFF4CAF50),
-              ),
-            ),
-          ),
-          
-          const SizedBox(height: 20),
-          
-          SizedBox(
-            height: 300,
-            child: LineChart(
-              LineChartData(
-                gridData: FlGridData(
-                  show: true,
-                  drawVerticalLine: false,
-                  horizontalInterval: 0.25,
-                  getDrawingHorizontalLine: (value) {
-                    return FlLine(
-                      color: Colors.grey.shade200,
-                      strokeWidth: 1,
-                    );
-                  },
-                ),
-                titlesData: FlTitlesData(
-                  leftTitles: AxisTitles(
-                    sideTitles: SideTitles(
-                      showTitles: true,
-                      reservedSize: 50,
-                      interval: 0.25,
-                      getTitlesWidget: (value, meta) {
-                        return Padding(
-                          padding: const EdgeInsets.only(right: 8),
-                          child: Text(
-                            '${(value * 100).toInt()}%',
-                            style: TextStyle(
-                              fontSize: 12,
-                              color: Colors.grey.shade600,
-                              fontWeight: FontWeight.w500,
-                            ),
-                          ),
-                        );
-                      },
-                    ),
-                  ),
-                  rightTitles: const AxisTitles(
-                    sideTitles: SideTitles(showTitles: false),
-                  ),
-                  topTitles: const AxisTitles(
-                    sideTitles: SideTitles(showTitles: false),
-                  ),
-                  bottomTitles: AxisTitles(
-                    sideTitles: SideTitles(
-                      showTitles: true,
-                      reservedSize: 50,
-                      interval: 1,
-                      getTitlesWidget: (value, meta) {
-                        final index = value.toInt();
-                        if (index >= 0 && index < _todaySessions.length) {
-                          final sessionNumber = _todaySessions[index]['session_number'] as int;
-                          final timestamp = _todaySessions[index]['timestamp'] as String;
-                          final time = DateTime.parse(timestamp);
-                          
-                          return Padding(
-                            padding: const EdgeInsets.only(top: 8),
-                            child: Column(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Text(
-                                  'ชุดที่ $sessionNumber',
-                                  style: TextStyle(
-                                    fontSize: 12,
-                                    fontWeight: FontWeight.bold,
-                                    color: Colors.grey.shade800,
-                                  ),
-                                ),
-                                const SizedBox(height: 2),
-                                Text(
-                                  _formatTimeSafe(time),
-                                  style: TextStyle(
-                                    fontSize: 10,
-                                    color: Colors.grey.shade600,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          );
-                        }
-                        return const SizedBox.shrink();
-                      },
-                    ),
-                  ),
-                ),
-                borderData: FlBorderData(show: false),
-                minY: 0,
-                maxY: 1,
-                // ✅ สำหรับ fl_chart 0.65.0 ใช้ tooltipBgColor
-                lineTouchData: LineTouchData(
-                  enabled: true,
-                  touchTooltipData: LineTouchTooltipData(
-                    tooltipBgColor: const Color(0xFF2D5F5F),
-                    tooltipRoundedRadius: 8,
-                    tooltipPadding: const EdgeInsets.symmetric(
-                      horizontal: 12,
-                      vertical: 8,
-                    ),
-                    getTooltipItems: (touchedSpots) {
-                      return touchedSpots.map((spot) {
-                        final index = spot.x.toInt();
-                        if (index >= 0 && index < _todaySessions.length) {
-                          final data = _todaySessions[index];
-                          final sessionNumber = data['session_number'] as int;
-                          final timestamp = data['timestamp'] as String;
-                          final time = DateTime.parse(timestamp);
-                          final positiveRatio = data['positive_ratio'] as double;
-                          final positiveCount = data['positive_count'] as int;
-                          final totalQuestions = data['total_questions'] as int;
-                          
-                          return LineTooltipItem(
-                            'ชุดที่ $sessionNumber (${_formatTimeSafe(time)})\n'
-                            '${(positiveRatio * 100).toStringAsFixed(0)}% เชิงบวก\n'
-                            '($positiveCount/$totalQuestions คำถาม)',
-                            const TextStyle(
-                              color: Colors.white,
-                              fontWeight: FontWeight.bold,
-                              fontSize: 12,
-                            ),
-                          );
-                        }
-                        return null;
-                      }).toList();
-                    },
-                  ),
-                  handleBuiltInTouches: true,
-                ),
-                lineBarsData: [
-                  LineChartBarData(
-                    spots: _todaySessions.asMap().entries.map((entry) {
-                      return FlSpot(
-                        entry.key.toDouble(),
-                        entry.value['positive_ratio'] as double,
-                      );
-                    }).toList(),
-                    isCurved: true,
-                    curveSmoothness: 0.35,
-                    color: const Color(0xFF4CAF50),
-                    barWidth: 3,
-                    dotData: FlDotData(
-                      show: true,
-                      getDotPainter: (spot, percent, barData, index) {
-                        return FlDotCirclePainter(
-                          radius: 5,
-                          color: Colors.white,
-                          strokeWidth: 2.5,
-                          strokeColor: const Color(0xFF4CAF50),
-                        );
-                      },
-                    ),
-                    belowBarData: BarAreaData(
-                      show: true,
-                      gradient: LinearGradient(
-                        colors: [
-                          const Color(0xFF4CAF50).withOpacity(0.3),
-                          const Color(0xFF4CAF50).withOpacity(0.05),
-                        ],
-                        begin: Alignment.topCenter,
-                        end: Alignment.bottomCenter,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-          
-          const SizedBox(height: 16),
-          const Divider(),
-          const SizedBox(height: 12),
-          _buildStatsSummary(),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildEmptyChart() {
-    return Container(
-      padding: const EdgeInsets.all(40),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.05),
-            blurRadius: 10,
-            offset: const Offset(0, 2),
-          ),
-        ],
-      ),
-      child: Column(
-        children: [
-          Icon(
-            Icons.inbox_outlined,
-            size: 80,
-            color: Colors.grey.shade300,
-          ),
-          const SizedBox(height: 16),
-          Text(
-            _isToday(_selectedDate)
-                ? 'ยังไม่มีข้อมูลในวันนี้'
-                : 'ไม่มีข้อมูลในวันที่เลือก',
-            textAlign: TextAlign.center,
-            style: TextStyle(
-              fontSize: 18,
-              fontWeight: FontWeight.bold,
-              color: Colors.grey.shade600,
-            ),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            _isToday(_selectedDate)
-                ? 'เริ่มทำแบบทดสอบเพื่อดูผลลัพธ์'
-                : 'ไม่มีชุดคำถามที่ทำครบในวันนี้',
-            textAlign: TextAlign.center,
-            style: TextStyle(
-              fontSize: 14,
-              color: Colors.grey.shade500,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildStatsSummary() {
-    if (_todaySessions.isEmpty) return const SizedBox.shrink();
-    
-    final avgPositive = _todaySessions
-        .map((d) => d['positive_ratio'] as double)
-        .reduce((a, b) => a + b) / _todaySessions.length;
-    
-    final maxPositive = _todaySessions
-        .map((d) => d['positive_ratio'] as double)
-        .reduce((a, b) => a > b ? a : b);
-    
-    final minPositive = _todaySessions
-        .map((d) => d['positive_ratio'] as double)
-        .reduce((a, b) => a < b ? a : b);
-    
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-      children: [
-        _buildStatItem(
-          icon: Icons.trending_up,
-          label: 'สูงสุด',
-          value: '${(maxPositive * 100).toStringAsFixed(0)}%',
-          color: const Color(0xFF4CAF50),
-        ),
-        _buildStatItem(
-          icon: Icons.analytics_outlined,
-          label: 'เฉลี่ย',
-          value: '${(avgPositive * 100).toStringAsFixed(0)}%',
-          color: const Color(0xFF2196F3),
-        ),
-        _buildStatItem(
-          icon: Icons.trending_down,
-          label: 'ต่ำสุด',
-          value: '${(minPositive * 100).toStringAsFixed(0)}%',
-          color: const Color(0xFFFF9800),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildStatItem({
-    required IconData icon,
-    required String label,
-    required String value,
-    required Color color,
-  }) {
-    return Column(
-      children: [
-        Icon(icon, color: color, size: 20),
-        const SizedBox(height: 4),
-        Text(
-          label,
-          style: TextStyle(
-            fontSize: 12,
-            color: Colors.grey.shade600,
-          ),
-        ),
-        const SizedBox(height: 2),
-        Text(
-          value,
-          style: TextStyle(
-            fontSize: 16,
-            fontWeight: FontWeight.bold,
-            color: color,
-          ),
-        ),
-      ],
-    );
-  }
-
+  // ✅ หน้ารายเดือน - ยังคงมีกราฟวงกลมเหมือนเดิม
   Widget _buildMonthlyChart() {
     if (_monthlyData.isEmpty) {
       return _buildEmptyState('ยังไม่มีข้อมูลในเดือนนี้');

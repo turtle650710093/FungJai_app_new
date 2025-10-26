@@ -318,7 +318,7 @@ class _WelcomePageState extends State<WelcomePage> {
                   Column(
                     children: [
                       const Text(
-                        'ไม่อยากเล่า',
+                        'ไม่มีอะไรจะเล่า',
                         style: TextStyle(
                           fontSize: 18,
                           fontWeight: FontWeight.w600,
